@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from textual.app import App, ComposeResult
 from textual.binding import Binding, BindingType
 from textual.containers import Horizontal, VerticalScroll
-from textual.events import AppBlur, AppFocus, MouseUp
+from textual.events import AppBlur, AppFocus
 from textual.widget import Widget
 from textual.widgets import Static
 
@@ -1295,6 +1295,10 @@ class VibeApp(App):  # noqa: PLR0904
                 )
 
     def action_clear_quit(self) -> None:
+        # First, try to copy any selected text
+        if copy_selection_to_clipboard(self):
+            return
+
         input_widgets = self.query(ChatInputContainer)
         if input_widgets:
             input_widget = input_widgets.first()
@@ -1490,9 +1494,6 @@ class VibeApp(App):  # noqa: PLR0904
             message, title="Update available", severity="information", timeout=10
         )
         self._update_notification_shown = True
-
-    def on_mouse_up(self, event: MouseUp) -> None:
-        copy_selection_to_clipboard(self)
 
     def on_app_blur(self, event: AppBlur) -> None:
         if self._chat_input_container and self._chat_input_container.input_widget:
