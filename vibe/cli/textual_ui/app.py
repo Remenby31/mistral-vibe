@@ -83,6 +83,7 @@ class VibeApp(App):  # noqa: PLR0904
 
     BINDINGS: ClassVar[list[BindingType]] = [
         Binding("ctrl+c", "clear_quit", "Quit", show=False),
+        Binding("ctrl+shift+c", "copy", "Copy", show=False),
         Binding("ctrl+d", "force_quit", "Quit", show=False, priority=True),
         Binding("escape", "interrupt", "Interrupt", show=False, priority=True),
         Binding("ctrl+o", "toggle_tool", "Toggle Tool", show=False),
@@ -1293,6 +1294,9 @@ class VibeApp(App):  # noqa: PLR0904
                     max_tokens=current_state.max_tokens,
                     current_tokens=self.agent.stats.context_tokens,
                 )
+
+    def action_copy(self) -> None:
+        copy_selection_to_clipboard(self)
 
     def action_clear_quit(self) -> None:
         # First, try to copy any selected text
