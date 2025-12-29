@@ -49,7 +49,11 @@ def _get_copy_fns(app: App) -> list[Callable[[str], None]]:
     return copy_fns
 
 
-def copy_selection_to_clipboard(app: App) -> None:
+def copy_selection_to_clipboard(app: App) -> bool:
+    """Copy selected text to clipboard.
+
+    Returns True if text was copied, False otherwise.
+    """
     selected_texts = []
 
     for widget in app.query("*"):
@@ -71,7 +75,7 @@ def copy_selection_to_clipboard(app: App) -> None:
             selected_texts.append(selected_text)
 
     if not selected_texts:
-        return
+        return False
 
     combined_text = "\n".join(selected_texts)
 
@@ -82,3 +86,5 @@ def copy_selection_to_clipboard(app: App) -> None:
             copy_fn(combined_text)
         except Exception:
             pass
+
+    return True
