@@ -62,6 +62,11 @@ class CommandRegistry:
                 description="Display agent statistics",
                 handler="_show_status",
             ),
+            "mcp": Command(
+                aliases=frozenset(["/mcp"]),
+                description="Display MCP servers and their tools",
+                handler="_show_mcp",
+            ),
         }
 
         for command in excluded_commands:

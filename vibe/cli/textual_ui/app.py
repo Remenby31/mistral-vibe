@@ -696,6 +696,101 @@ class VibeApp(App):  # noqa: PLR0904
 """
         await self._mount_and_scroll(UserCommandMessage(status_text))
 
+    async def _show_mcp(self) -> None:
+        """Display MCP servers and their tools."""
+        mcp_servers = self.config.mcp_servers
+
+        if not mcp_servers:
+            await self._mount_and_scroll(
+                UserCommandMessage(
+                    "## MCP Servers\n\n"
+                    "No MCP servers configured.\n\n"
+                    "Add servers to `~/.vibe/config.toml`:\n"
+                    "```toml\n"
+                    "[[mcp_servers]]\n"
+                    'name = "fetch"\n'
+                    'transport = "stdio"\n'
+                    'command = "uvx"\n'
+                    'args = ["mcp-server-fetch"]\n'
+                    "```"
+                )
+            )
+            return
+
+        # Get all available tools to match with servers
+        available_tools: dict[str, type] = {}
+        if self.agent:
+            available_tools = self.agent.tool_manager.available_tools()
+
+        # Build server info with tools
+        lines = ["## MCP Servers\n"]
+
+        for server in mcp_servers:
+            server_name = server.name
+            transport = server.transport
+
+            # Find tools belonging to this server
+            server_tools: list[tuple[str, str]] = []
+            for tool_name, tool_class in available_tools.items():
+                class_name = tool_class.__name__
+                # MCP tools have class names like "MCP_{alias}__{tool}" or "MCP_STDIO_{alias}__{tool}"
+                if class_name.startswith("MCP_"):
+                    # Extract alias from class name
+                    if class_name.startswith("MCP_STDIO_"):
+                        parts = class_name[10:].split("__", 1)
+                    else:
+                        parts = class_name[4:].split("__", 1)
+
+                    if len(parts) == 2:
+                        alias = parts[0]
+                        if alias == server_name or tool_name.startswith(f"{server_name}_"):
+                            description = getattr(tool_class, "description", "") or ""
+                            # Clean up description (remove server hints and prefixes)
+                            if description.startswith(f"[{server_name}] "):
+                                description = description[len(f"[{server_name}] "):]
+                            if "\nHint:" in description:
+                                description = description.split("\nHint:")[0]
+                            server_tools.append((tool_name, description.strip()))
+
+            # Determine status
+            has_tools = len(server_tools) > 0
+            status = "connected" if has_tools else "not connected"
+
+            # Build server section header
+            lines.append(f"### {server_name} ({transport})")
+
+            # Server details
+            if transport == "stdio":
+                cmd = getattr(server, "command", "")
+                args = getattr(server, "args", [])
+                cmd_display = f"{cmd} {' '.join(args)}" if args else cmd
+                lines.append(f"- **Command**: `{cmd_display}`")
+            else:
+                url = getattr(server, "url", "")
+                lines.append(f"- **URL**: `{url}`")
+
+            lines.append(f"- **Status**: {status}")
+            lines.append(f"- **Tools**: {len(server_tools)}")
+
+            if server_tools:
+                lines.append("")
+                for tool_name, description in sorted(server_tools):
+                    if description:
+                        lines.append(f"  - `{tool_name}`: {description}")
+                    else:
+                        lines.append(f"  - `{tool_name}`")
+
+            lines.append("")
+
+        # Summary
+        total_tools = sum(
+            1 for tool_class in available_tools.values()
+            if tool_class.__name__.startswith("MCP_")
+        )
+        lines.append(f"**Total**: {len(mcp_servers)} server(s), {total_tools} tool(s)")
+
+        await self._mount_and_scroll(UserCommandMessage("\n".join(lines)))
+
     async def _show_config(self) -> None:
         """Switch to the configuration app in the bottom panel."""
         if self._current_bottom_app == BottomApp.Config:
