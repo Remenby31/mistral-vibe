@@ -7,14 +7,12 @@ from vibe.core.modes import AgentMode, ModeSafety
 MODE_ICONS: dict[AgentMode, str] = {
     AgentMode.DEFAULT: "⏵",
     AgentMode.PLAN: "⏸︎",
-    AgentMode.ACCEPT_EDITS: "⏵⏵",
-    AgentMode.AUTO_APPROVE: "⏵⏵⏵",
+    AgentMode.AUTO_APPROVE: "⏵⏵",
 }
 
 SAFETY_CLASSES: dict[ModeSafety, str] = {
     ModeSafety.SAFE: "mode-safe",
     ModeSafety.NEUTRAL: "mode-neutral",
-    ModeSafety.DESTRUCTIVE: "mode-destructive",
     ModeSafety.YOLO: "mode-yolo",
 }
 
@@ -22,7 +20,7 @@ SAFETY_CLASSES: dict[ModeSafety, str] = {
 class ModeIndicator(Static):
     """Displays the current agent mode with safety-colored indicator."""
 
-    def __init__(self, mode: AgentMode = AgentMode.DEFAULT) -> None:
+    def __init__(self, mode: AgentMode = AgentMode.AUTO_APPROVE) -> None:
         super().__init__()
         self.can_focus = False
         self._mode = mode

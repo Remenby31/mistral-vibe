@@ -8,7 +8,6 @@ from typing import Any
 class ModeSafety(StrEnum):
     SAFE = auto()
     NEUTRAL = auto()
-    DESTRUCTIVE = auto()
     YOLO = auto()
 
 
@@ -16,7 +15,6 @@ class AgentMode(StrEnum):
     DEFAULT = auto()
     AUTO_APPROVE = auto()
     PLAN = auto()
-    ACCEPT_EDITS = auto()
 
     @property
     def display_name(self) -> str:
@@ -56,7 +54,6 @@ class ModeConfig:
 
 
 PLAN_MODE_TOOLS = ["grep", "read_file", "todo"]
-ACCEPT_EDITS_TOOLS = ["write_file", "search_replace"]
 
 MODE_CONFIGS: dict[AgentMode, ModeConfig] = {
     AgentMode.DEFAULT: ModeConfig(
@@ -72,18 +69,6 @@ MODE_CONFIGS: dict[AgentMode, ModeConfig] = {
         auto_approve=True,
         config_overrides={"enabled_tools": PLAN_MODE_TOOLS},
     ),
-    AgentMode.ACCEPT_EDITS: ModeConfig(
-        display_name="Accept Edits",
-        description="Auto-approves file edits only",
-        safety=ModeSafety.DESTRUCTIVE,
-        auto_approve=False,
-        config_overrides={
-            "tools": {
-                "write_file": {"permission": "always"},
-                "search_replace": {"permission": "always"},
-            }
-        },
-    ),
     AgentMode.AUTO_APPROVE: ModeConfig(
         display_name="Auto Approve",
         description="Auto-approves all tool executions",
@@ -95,10 +80,9 @@ MODE_CONFIGS: dict[AgentMode, ModeConfig] = {
 
 def get_mode_order() -> list[AgentMode]:
     return [
-        AgentMode.DEFAULT,
-        AgentMode.PLAN,
-        AgentMode.ACCEPT_EDITS,
         AgentMode.AUTO_APPROVE,
+        AgentMode.PLAN,
+        AgentMode.DEFAULT,
     ]
 
 

@@ -21,7 +21,7 @@ from vibe.core.modes import ModeSafety
 
 SAFETY_BORDER_CLASSES: dict[ModeSafety, str] = {
     ModeSafety.SAFE: "border-safe",
-    ModeSafety.DESTRUCTIVE: "border-warning",
+    ModeSafety.NEUTRAL: "border-warning",
     ModeSafety.YOLO: "border-error",
 }
 

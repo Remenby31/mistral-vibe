@@ -98,7 +98,7 @@ class VibeApp(App):  # noqa: PLR0904
     def __init__(
         self,
         config: VibeConfig,
-        initial_mode: AgentMode = AgentMode.DEFAULT,
+        initial_mode: AgentMode = AgentMode.AUTO_APPROVE,
         enable_streaming: bool = False,
         initial_prompt: str | None = None,
         loaded_messages: list[LLMMessage] | None = None,
@@ -1519,7 +1519,7 @@ def _print_session_resume_message(session_id: str | None) -> None:
 
 def run_textual_ui(
     config: VibeConfig,
-    initial_mode: AgentMode = AgentMode.DEFAULT,
+    initial_mode: AgentMode = AgentMode.AUTO_APPROVE,
     enable_streaming: bool = False,
     initial_prompt: str | None = None,
     loaded_messages: list[LLMMessage] | None = None,

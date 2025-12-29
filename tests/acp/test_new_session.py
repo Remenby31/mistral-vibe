@@ -98,21 +98,17 @@ class TestACPNewSession:
         assert session_response.modes is not None
         assert session_response.modes.currentModeId is not None
         assert session_response.modes.availableModes is not None
-        assert len(session_response.modes.availableModes) == 4
+        assert len(session_response.modes.availableModes) == 3
 
-        assert session_response.modes.currentModeId == AgentMode.DEFAULT.value
-        assert session_response.modes.availableModes[0].id == AgentMode.DEFAULT.value
-        assert session_response.modes.availableModes[0].name == "Default"
+        assert session_response.modes.currentModeId == AgentMode.AUTO_APPROVE.value
         assert (
-            session_response.modes.availableModes[1].id == AgentMode.AUTO_APPROVE.value
+            session_response.modes.availableModes[0].id == AgentMode.AUTO_APPROVE.value
         )
-        assert session_response.modes.availableModes[1].name == "Auto Approve"
-        assert session_response.modes.availableModes[2].id == AgentMode.PLAN.value
-        assert session_response.modes.availableModes[2].name == "Plan"
-        assert (
-            session_response.modes.availableModes[3].id == AgentMode.ACCEPT_EDITS.value
-        )
-        assert session_response.modes.availableModes[3].name == "Accept Edits"
+        assert session_response.modes.availableModes[0].name == "Auto Approve"
+        assert session_response.modes.availableModes[1].id == AgentMode.PLAN.value
+        assert session_response.modes.availableModes[1].name == "Plan"
+        assert session_response.modes.availableModes[2].id == AgentMode.DEFAULT.value
+        assert session_response.modes.availableModes[2].name == "Default"
 
     @pytest.mark.skip(reason="TODO: Fix this test")
     @pytest.mark.asyncio

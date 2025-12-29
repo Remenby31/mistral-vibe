@@ -67,30 +67,6 @@ class TestACPSetMode:
         assert acp_session.agent.auto_approve is False
 
     @pytest.mark.asyncio
-    async def test_set_mode_to_auto_approve(self, acp_agent: VibeAcpAgent) -> None:
-        session_response = await acp_agent.newSession(
-            NewSessionRequest(cwd=str(Path.cwd()), mcpServers=[])
-        )
-        session_id = session_response.sessionId
-        acp_session = next(
-            (s for s in acp_agent.sessions.values() if s.id == session_id), None
-        )
-        assert acp_session is not None
-
-        assert acp_session.agent.mode == AgentMode.DEFAULT
-        assert acp_session.agent.auto_approve is False
-
-        response = await acp_agent.setSessionMode(
-            SetSessionModeRequest(
-                sessionId=session_id, modeId=AgentMode.AUTO_APPROVE.value
-            )
-        )
-
-        assert response is not None
-        assert acp_session.agent.mode == AgentMode.AUTO_APPROVE
-        assert acp_session.agent.auto_approve is True
-
-    @pytest.mark.asyncio
     async def test_set_mode_to_plan(self, acp_agent: VibeAcpAgent) -> None:
         session_response = await acp_agent.newSession(
             NewSessionRequest(cwd=str(Path.cwd()), mcpServers=[])
@@ -101,7 +77,7 @@ class TestACPSetMode:
         )
         assert acp_session is not None
 
-        assert acp_session.agent.mode == AgentMode.DEFAULT
+        assert acp_session.agent.mode == AgentMode.AUTO_APPROVE
 
         response = await acp_agent.setSessionMode(
             SetSessionModeRequest(sessionId=session_id, modeId=AgentMode.PLAN.value)
@@ -112,31 +88,6 @@ class TestACPSetMode:
         assert (
             acp_session.agent.auto_approve is True
         )  # Plan mode auto-approves read-only tools
-
-    @pytest.mark.asyncio
-    async def test_set_mode_to_accept_edits(self, acp_agent: VibeAcpAgent) -> None:
-        session_response = await acp_agent.newSession(
-            NewSessionRequest(cwd=str(Path.cwd()), mcpServers=[])
-        )
-        session_id = session_response.sessionId
-        acp_session = next(
-            (s for s in acp_agent.sessions.values() if s.id == session_id), None
-        )
-        assert acp_session is not None
-
-        assert acp_session.agent.mode == AgentMode.DEFAULT
-
-        response = await acp_agent.setSessionMode(
-            SetSessionModeRequest(
-                sessionId=session_id, modeId=AgentMode.ACCEPT_EDITS.value
-            )
-        )
-
-        assert response is not None
-        assert acp_session.agent.mode == AgentMode.ACCEPT_EDITS
-        assert (
-            acp_session.agent.auto_approve is False
-        )  # Accept Edits mode doesn't auto-approve all
 
     @pytest.mark.asyncio
     async def test_set_mode_invalid_mode_returns_none(
@@ -173,7 +124,7 @@ class TestACPSetMode:
         )
         assert acp_session is not None
 
-        initial_mode = AgentMode.DEFAULT
+        initial_mode = AgentMode.AUTO_APPROVE
         assert acp_session.agent.mode == initial_mode
 
         response = await acp_agent.setSessionMode(
@@ -182,7 +133,7 @@ class TestACPSetMode:
 
         assert response is not None
         assert acp_session.agent.mode == initial_mode
-        assert acp_session.agent.auto_approve is False
+        assert acp_session.agent.auto_approve is True
 
     @pytest.mark.asyncio
     async def test_set_mode_with_empty_string(self, acp_agent: VibeAcpAgent) -> None:

@@ -119,7 +119,19 @@ You can start Vibe with a prompt with the following command:
 vibe "Refactor the main function in cli/main.py to be more modular."
 ```
 
-**Note**: The `--auto-approve` flag automatically approves all tool executions without prompting. In interactive mode, you can also toggle auto-approve on/off using `Shift+Tab`.
+### Agent Modes
+
+Vibe operates in **Auto Approve** mode by default, automatically approving all tool executions. This design follows a simple philosophy: if you want caution, use the **Default** mode; otherwise, no half measures.
+
+Available modes:
+
+| Mode | Description |
+|------|-------------|
+| **Auto Approve** (default) | Auto-approves all tool executions without prompting |
+| **Plan** | Read-only mode for exploration — only `grep`, `read_file`, and `todo` are available |
+| **Default** | Requires manual approval for each tool execution |
+
+Use `Shift+Tab` in interactive mode to cycle between modes.
 
 ### Programmatic Mode
 
@@ -128,8 +140,6 @@ You can run Vibe non-interactively by piping input or using the `--prompt` flag.
 ```bash
 vibe --prompt "Refactor the main function in cli/main.py to be more modular."
 ```
-
-by default it will use `auto-approve` mode.
 
 ### Slash Commands
 

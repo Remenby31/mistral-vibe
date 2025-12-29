@@ -1,5 +1,9 @@
 Screen {
     background: $background;
+    scrollbar-size: 1 1;
+    scrollbar-color: $foreground-muted;
+    scrollbar-color-hover: $foreground;
+    scrollbar-color-active: $primary;
 }
 
 #chat {
@@ -944,6 +948,11 @@ ContextProgress {
     text-style: bold;
 }
 
+.question-option-confirmed {
+    text-style: bold;
+    color: $success;
+}
+
 .question-option-positive {
     color: $success;
 }
@@ -1007,7 +1016,7 @@ ContextProgress {
 .question-tabs {
     width: 100%;
     height: auto;
-    margin: 0;
+    margin-bottom: 1;
 }
 
 .question-tab {
@@ -1022,6 +1031,10 @@ ContextProgress {
     text-style: bold;
 }
 
+.question-tab-answered {
+    color: $success;
+}
+
 .question-other-line {
     width: 100%;
     height: auto;
@@ -1033,7 +1046,7 @@ ContextProgress {
 }
 
 .question-other-input {
-    width: 1fr;
+    width: auto;
     height: auto;
     background: transparent;
     border: none;
@@ -1045,9 +1058,22 @@ ContextProgress {
     color: $foreground;
 }
 
+.question-other-confirmed {
+    color: $success;
+    text-style: bold;
+}
+
+.question-other-check {
+    width: auto;
+    height: auto;
+    color: $success;
+    text-style: bold;
+}
+
 .question-panels-container {
     width: 100%;
     height: auto;
+    margin-bottom: 1;
 }
 
 .question-panel {
@@ -1068,4 +1094,42 @@ ContextProgress {
 
 .question-padding {
     height: auto;
+}
+
+.recap-panel {
+    width: 100%;
+    height: auto;
+}
+
+.recap-title {
+    height: auto;
+    text-style: bold;
+    color: $primary;
+    margin-bottom: 1;
+}
+
+.recap-answer {
+    height: auto;
+    color: $foreground;
+    margin-bottom: 1;
+}
+
+.recap-item-selected {
+    text-style: bold;
+    color: $primary;
+}
+
+.recap-submit {
+    height: auto;
+    color: $foreground;
+    margin-top: 1;
+}
+
+.recap-submit.recap-item-selected {
+    color: $success;
+    text-style: bold;
+}
+
+.question-tab-validate {
+    color: $success;
 }

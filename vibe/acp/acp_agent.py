@@ -172,7 +172,7 @@ class VibeAcpAgent(AcpAgent):
                 "message": "You must be authenticated before creating a new session"
             }) from e
 
-        agent = VibeAgent(config=config, mode=AgentMode.DEFAULT, enable_streaming=True)
+        agent = VibeAgent(config=config, mode=AgentMode.AUTO_APPROVE, enable_streaming=True)
         # NOTE: For now, we pin session.id to agent.session_id right after init time.
         # We should just use agent.session_id everywhere, but it can still change during
         # session lifetime (e.g. agent.compact is called).

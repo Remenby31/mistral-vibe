@@ -51,16 +51,6 @@ class TestPlanModeMiddleware:
         assert result.message is None
 
     @pytest.mark.asyncio
-    async def test_does_not_inject_when_accept_edits_mode(self) -> None:
-        middleware = PlanModeMiddleware(lambda: AgentMode.ACCEPT_EDITS)
-        ctx = make_context()
-
-        result = await middleware.before_turn(ctx)
-
-        assert result.action == MiddlewareAction.CONTINUE
-        assert result.message is None
-
-    @pytest.mark.asyncio
     async def test_after_turn_always_continues(self) -> None:
         middleware = PlanModeMiddleware(lambda: AgentMode.PLAN)
         ctx = make_context()

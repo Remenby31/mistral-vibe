@@ -16,7 +16,6 @@ from vibe.core.modes import (
     get_mode_order,
     next_mode,
 )
-from vibe.core.tools.base import ToolPermission
 from vibe.core.types import (
     FunctionCall,
     LLMChunk,
@@ -32,7 +31,6 @@ class TestModeSafety:
     def test_safety_enum_values(self) -> None:
         assert ModeSafety.SAFE == "safe"
         assert ModeSafety.NEUTRAL == "neutral"
-        assert ModeSafety.DESTRUCTIVE == "destructive"
         assert ModeSafety.YOLO == "yolo"
 
     def test_default_mode_is_neutral(self) -> None:
@@ -44,9 +42,6 @@ class TestModeSafety:
     def test_plan_mode_is_safe(self) -> None:
         assert AgentMode.PLAN.safety == ModeSafety.SAFE
 
-    def test_accept_edits_mode_is_destructive(self) -> None:
-        assert AgentMode.ACCEPT_EDITS.safety == ModeSafety.DESTRUCTIVE
-
 
 class TestAgentMode:
     def test_all_modes_have_configs(self) -> None:
@@ -57,25 +52,21 @@ class TestAgentMode:
         assert AgentMode.DEFAULT.display_name == "Default"
         assert AgentMode.AUTO_APPROVE.display_name == "Auto Approve"
         assert AgentMode.PLAN.display_name == "Plan"
-        assert AgentMode.ACCEPT_EDITS.display_name == "Accept Edits"
 
     def test_description_property(self) -> None:
         assert "approval" in AgentMode.DEFAULT.description.lower()
         assert "auto" in AgentMode.AUTO_APPROVE.description.lower()
         assert "read-only" in AgentMode.PLAN.description.lower()
-        assert "edits" in AgentMode.ACCEPT_EDITS.description.lower()
 
     def test_auto_approve_property(self) -> None:
         assert AgentMode.DEFAULT.auto_approve is False
         assert AgentMode.AUTO_APPROVE.auto_approve is True
         assert AgentMode.PLAN.auto_approve is True
-        assert AgentMode.ACCEPT_EDITS.auto_approve is False
 
     def test_from_string_valid(self) -> None:
         assert AgentMode.from_string("default") == AgentMode.DEFAULT
         assert AgentMode.from_string("AUTO_APPROVE") == AgentMode.AUTO_APPROVE
         assert AgentMode.from_string("Plan") == AgentMode.PLAN
-        assert AgentMode.from_string("accept_edits") == AgentMode.ACCEPT_EDITS
 
     def test_from_string_invalid(self) -> None:
         assert AgentMode.from_string("invalid") is None
@@ -94,24 +85,14 @@ class TestModeConfigOverrides:
         assert "enabled_tools" in overrides
         assert overrides["enabled_tools"] == PLAN_MODE_TOOLS
 
-    def test_accept_edits_mode_sets_tool_permissions(self) -> None:
-        overrides = AgentMode.ACCEPT_EDITS.config_overrides
-        assert "tools" in overrides
-        tools_config = overrides["tools"]
-        assert "write_file" in tools_config
-        assert "search_replace" in tools_config
-        assert tools_config["write_file"]["permission"] == "always"
-        assert tools_config["search_replace"]["permission"] == "always"
-
 
 class TestModeCycling:
     def test_get_mode_order_includes_all_modes(self) -> None:
         order = get_mode_order()
-        assert len(order) == 4
+        assert len(order) == 3
         assert AgentMode.DEFAULT in order
         assert AgentMode.AUTO_APPROVE in order
         assert AgentMode.PLAN in order
-        assert AgentMode.ACCEPT_EDITS in order
 
     def test_next_mode_cycles_through_all(self) -> None:
         order = get_mode_order()
@@ -222,49 +203,6 @@ class TestAgentSwitchMode:
 
         assert agent.config is original_config
         assert agent.mode == AgentMode.DEFAULT
-
-
-class TestAcceptEditsMode:
-    def test_accept_edits_config_sets_write_file_always(self) -> None:
-        overrides = AgentMode.ACCEPT_EDITS.config_overrides
-        assert overrides["tools"]["write_file"]["permission"] == "always"
-
-    def test_accept_edits_config_sets_search_replace_always(self) -> None:
-        overrides = AgentMode.ACCEPT_EDITS.config_overrides
-        assert overrides["tools"]["search_replace"]["permission"] == "always"
-
-    def test_accept_edits_mode_not_auto_approve(self) -> None:
-        assert AgentMode.ACCEPT_EDITS.auto_approve is False
-
-    @pytest.mark.asyncio
-    async def test_accept_edits_mode_auto_approves_write_file(self) -> None:
-        backend = FakeBackend([])
-
-        config = VibeConfig(
-            session_logging=SessionLoggingConfig(enabled=False),
-            auto_compact_threshold=0,
-            enabled_tools=["write_file"],
-            **AgentMode.ACCEPT_EDITS.config_overrides,
-        )
-        agent = Agent(config, mode=AgentMode.ACCEPT_EDITS, backend=backend)
-
-        perm = agent.tool_manager.get_tool_config("write_file").permission
-        assert perm == ToolPermission.ALWAYS
-
-    @pytest.mark.asyncio
-    async def test_accept_edits_mode_requires_approval_for_other_tools(self) -> None:
-        backend = FakeBackend([])
-
-        config = VibeConfig(
-            session_logging=SessionLoggingConfig(enabled=False),
-            auto_compact_threshold=0,
-            enabled_tools=["bash"],
-            **AgentMode.ACCEPT_EDITS.config_overrides,
-        )
-        agent = Agent(config, mode=AgentMode.ACCEPT_EDITS, backend=backend)
-
-        perm = agent.tool_manager.get_tool_config("bash").permission
-        assert perm == ToolPermission.ASK
 
 
 class TestPlanModeToolRestriction:
