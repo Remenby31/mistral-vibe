@@ -10,11 +10,12 @@ from pydantic import BaseModel
 from textual.app import App, ComposeResult
 from textual.binding import Binding, BindingType
 from textual.containers import Horizontal, VerticalScroll
-from textual.events import AppBlur, AppFocus
+from textual.events import AppBlur, AppFocus, MouseUp
 from textual.widget import Widget
 from textual.widgets import Static
 
 from vibe import __version__ as CORE_VERSION
+from vibe.cli.clipboard import copy_selection_to_clipboard
 from vibe.cli.commands import CommandRegistry
 from vibe.cli.terminal_setup import setup_terminal
 from vibe.cli.textual_ui.handlers.event_handler import EventHandler
@@ -1489,6 +1490,9 @@ class VibeApp(App):  # noqa: PLR0904
             message, title="Update available", severity="information", timeout=10
         )
         self._update_notification_shown = True
+
+    def on_mouse_up(self, event: MouseUp) -> None:
+        copy_selection_to_clipboard(self)
 
     def on_app_blur(self, event: AppBlur) -> None:
         if self._chat_input_container and self._chat_input_container.input_widget:
