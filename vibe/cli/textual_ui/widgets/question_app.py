@@ -35,6 +35,7 @@ class QuestionTab(Static):
         self.tab_label = label
         self.tab_index = index
         self.is_active = is_active
+        self.is_answered = False
 
     def on_mount(self) -> None:
         self._update_display()
@@ -43,12 +44,21 @@ class QuestionTab(Static):
         self.is_active = active
         self._update_display()
 
+    def set_answered(self, answered: bool) -> None:
+        self.is_answered = answered
+        self._update_display()
+
     def _update_display(self) -> None:
-        self.update(self.tab_label)
+        check = " ✓" if self.is_answered else ""
+        self.update(f"{self.tab_label}{check}")
         if self.is_active:
             self.add_class("question-tab-active")
         else:
             self.remove_class("question-tab-active")
+        if self.is_answered:
+            self.add_class("question-tab-answered")
+        else:
+            self.remove_class("question-tab-answered")
 
 
 class QuestionPanel(Container):
@@ -75,6 +85,15 @@ class QuestionPanel(Container):
         """Handle escape from input."""
         self.post_message(self.CancelRequested())
 
+    def on_input_changed(self, event: Input.Changed) -> None:
+        """Auto-confirm 'Other' option when user starts typing (single-select only)."""
+        if not self.multi_select and event.value:
+            # User started typing in "Other" field, auto-confirm it
+            other_idx = len(self.choices)
+            if self.confirmed_option != other_idx:
+                self.confirmed_option = other_idx
+                self._update_options()
+
     def on_key(self, event: events.Key) -> None:
         """Handle escape when panel is focused."""
         if event.key == "escape":
@@ -87,16 +106,25 @@ class QuestionPanel(Container):
         self.index = index
         self.choices = question.choices or []
         self.max_choices = max_choices
+        self.multi_select = getattr(question, "multi_select", False)
 
         # Selection state
-        self.selected_option = 0
+        self.selected_option = 0  # Currently focused option (cursor position)
         self.total_options = len(self.choices) + 1  # +1 for "Other"
         self.option_widgets: list[Static] = []
+
+        # Multi-select: set of checked option indices
+        self.checked_options: set[int] = set()
+
+        # Single-select: confirmed option index (None = not yet confirmed)
+        self.confirmed_option: int | None = None
 
         # Text input for "Other" option
         self.text_input: Input | None = None
         self.other_cursor: Static | None = None
+        self.other_check: Static | None = None  # ✓ marker for single-select
         self.is_other_mode = False
+        self.other_checked = False  # For multi-select "Other"
 
     def compose(self) -> ComposeResult:
         # Question text (will be highlighted when active)
@@ -110,13 +138,18 @@ class QuestionPanel(Container):
 
         # "Other" option as inline input with cursor prefix
         with Horizontal(classes="question-other-line"):
-            self.other_cursor = Static("  ", classes="question-other-cursor")
+            other_num = len(self.choices) + 1
+            # Initial cursor state (not selected)
+            self.other_cursor = Static(f"   {other_num}. ", classes="question-other-cursor")
             yield self.other_cursor
             self.text_input = EscapableInput(
-                placeholder="_",
+                placeholder="Other (type your answer)",
                 classes="question-other-input",
             )
             yield self.text_input
+            # Check marker (for single-select confirmation)
+            self.other_check = Static("", classes="question-other-check")
+            yield self.other_check
 
         # Dynamic padding: fill remaining space based on max choices
         padding_lines = self.max_choices - len(self.choices)
@@ -128,30 +161,73 @@ class QuestionPanel(Container):
 
     def _update_options(self) -> None:
         for idx, widget in enumerate(self.option_widgets):
-            is_selected = idx == self.selected_option
+            is_focused = idx == self.selected_option
+            is_confirmed = self.confirmed_option == idx
+            num = idx + 1
 
             choice = self.choices[idx]
             text = choice.label
             if choice.description:
                 text += f" - {choice.description}"
 
-            cursor = "> " if is_selected else "  "
-            widget.update(f"{cursor}{text}")
+            if self.multi_select:
+                # Multi-select: show checkbox
+                is_checked = idx in self.checked_options
+                checkbox = "[x]" if is_checked else "[ ]"
+                cursor = " > " if is_focused else "   "
+                widget.update(f"{cursor}{num}. {checkbox} {text}")
+            else:
+                # Single-select: show cursor and confirmation marker
+                marker = " ✓" if is_confirmed else ""
+                cursor = " > " if is_focused else "   "
+                widget.update(f"{cursor}{num}. {text}{marker}")
 
+            # Update CSS classes
             widget.remove_class("question-option-selected")
-            if is_selected:
+            widget.remove_class("question-option-confirmed")
+            if is_focused:
                 widget.add_class("question-option-selected")
+            if is_confirmed and not self.multi_select:
+                widget.add_class("question-option-confirmed")
 
-        # Update "Other" cursor
-        is_other_selected = self.selected_option == len(self.choices)
+        # Update "Other" cursor and input
+        is_other_focused = self.selected_option == len(self.choices)
+        is_other_confirmed = self.confirmed_option == len(self.choices)
         was_other_mode = self.is_other_mode
+        other_num = len(self.choices) + 1
 
         if self.other_cursor:
-            self.other_cursor.update("> " if is_other_selected else "  ")
+            if self.multi_select:
+                checkbox = "[x]" if self.other_checked else "[ ]"
+                cursor = " > " if is_other_focused else "   "
+                self.other_cursor.update(f"{cursor}{other_num}. {checkbox} ")
+            else:
+                cursor = " > " if is_other_focused else "   "
+                self.other_cursor.update(f"{cursor}{other_num}. ")
+
+            # Update cursor styling for confirmed state
+            self.other_cursor.remove_class("question-other-confirmed")
+            if is_other_confirmed and not self.multi_select:
+                self.other_cursor.add_class("question-other-confirmed")
+
+        if self.other_check:
+            # Show ✓ marker for confirmed "Other" in single-select
+            if is_other_confirmed and not self.multi_select:
+                self.other_check.update(" ✓")
+                self.other_check.add_class("question-other-confirmed")
+            else:
+                self.other_check.update("")
+                self.other_check.remove_class("question-other-confirmed")
 
         if self.text_input:
-            self.is_other_mode = is_other_selected
-            if is_other_selected:
+            self.is_other_mode = is_other_focused
+
+            # Update input styling for confirmed state
+            self.text_input.remove_class("question-other-confirmed")
+            if is_other_confirmed and not self.multi_select:
+                self.text_input.add_class("question-other-confirmed")
+
+            if is_other_focused:
                 self.text_input.focus()
             elif was_other_mode:
                 self.focus()
@@ -164,14 +240,64 @@ class QuestionPanel(Container):
         self.selected_option = (self.selected_option + 1) % self.total_options
         self._update_options()
 
+    def toggle_current(self) -> None:
+        """Toggle the currently focused option (for multi-select mode)."""
+        if not self.multi_select:
+            return
+
+        if self.selected_option < len(self.choices):
+            # Toggle regular option
+            if self.selected_option in self.checked_options:
+                self.checked_options.discard(self.selected_option)
+            else:
+                self.checked_options.add(self.selected_option)
+        else:
+            # Toggle "Other" option
+            self.other_checked = not self.other_checked
+
+        self._update_options()
+
+    def confirm_current(self) -> None:
+        """Confirm the currently focused option (for single-select mode)."""
+        if self.multi_select:
+            return
+        self.confirmed_option = self.selected_option
+        self._update_options()
+
+    def is_answered(self) -> bool:
+        """Check if this question has been answered."""
+        if self.multi_select:
+            return len(self.checked_options) > 0 or self.other_checked
+        else:
+            return self.confirmed_option is not None
+
     def get_answer(self) -> tuple[str, bool]:
         """Get the current answer and whether it's an 'Other' response."""
-        if self.selected_option < len(self.choices):
-            return self.choices[self.selected_option].label, False
+        if self.multi_select:
+            # Multi-select: return comma-separated list of selected labels
+            selected_labels = [
+                self.choices[idx].label
+                for idx in sorted(self.checked_options)
+            ]
+
+            # Add "Other" if checked and has content
+            other_text = ""
+            if self.other_checked and self.text_input:
+                other_text = self.text_input.value.strip()
+                if other_text:
+                    selected_labels.append(other_text)
+
+            has_other = self.other_checked and bool(other_text)
+            return ", ".join(selected_labels), has_other
         else:
-            if self.text_input:
-                return self.text_input.value.strip(), True
-            return "", True
+            # Single-select: return the confirmed option (or selected if not confirmed)
+            answer_idx = self.confirmed_option if self.confirmed_option is not None else self.selected_option
+            if answer_idx < len(self.choices):
+                return self.choices[answer_idx].label, False
+            else:
+                if self.text_input:
+                    return self.text_input.value.strip(), True
+                return "", True
 
     def focus_input(self) -> None:
         """Focus the appropriate input for this question."""
@@ -179,6 +305,81 @@ class QuestionPanel(Container):
             self.text_input.focus()
         else:
             self.focus()
+
+
+class RecapPanel(Container):
+    """Panel showing a summary of all answers before final submission."""
+
+    can_focus = True
+
+    class EditRequested(Message):
+        """User wants to edit a specific question."""
+
+        def __init__(self, question_index: int) -> None:
+            super().__init__()
+            self.question_index = question_index
+
+    class SubmitRequested(Message):
+        """User clicked the submit button."""
+
+        pass
+
+    def __init__(self, answers: list[tuple[str, str, bool]]) -> None:
+        super().__init__(classes="recap-panel")
+        self.answers = answers
+        self.selected_index = 0  # 0 to len(answers) = questions, len(answers) = submit button
+        self.total_items = len(answers) + 1  # questions + submit button
+        self.answer_widgets: list[Static] = []
+        self.submit_widget: Static | None = None
+
+    def compose(self) -> ComposeResult:
+        yield Static("Summary", classes="recap-title")
+
+        for i, (question, answer, is_other) in enumerate(self.answers):
+            q_preview = question[:60] + "..." if len(question) > 60 else question
+            prefix = "(custom) " if is_other else ""
+            widget = Static(
+                f"  {i + 1}. {q_preview}\n     → {prefix}{answer}",
+                classes="recap-answer",
+            )
+            self.answer_widgets.append(widget)
+            yield widget
+
+        # Submit button
+        self.submit_widget = Static("  [ Valider ]", classes="recap-submit")
+        yield self.submit_widget
+
+    def on_mount(self) -> None:
+        self._update_selection()
+
+    def _update_selection(self) -> None:
+        # Update answer widgets
+        for i, widget in enumerate(self.answer_widgets):
+            widget.remove_class("recap-item-selected")
+            if i == self.selected_index:
+                widget.add_class("recap-item-selected")
+
+        # Update submit button
+        if self.submit_widget:
+            self.submit_widget.remove_class("recap-item-selected")
+            if self.selected_index == len(self.answers):
+                self.submit_widget.add_class("recap-item-selected")
+
+    def move_up(self) -> None:
+        self.selected_index = (self.selected_index - 1) % self.total_items
+        self._update_selection()
+
+    def move_down(self) -> None:
+        self.selected_index = (self.selected_index + 1) % self.total_items
+        self._update_selection()
+
+    def select_current(self) -> None:
+        if self.selected_index < len(self.answers):
+            # Edit a question
+            self.post_message(self.EditRequested(self.selected_index))
+        else:
+            # Submit
+            self.post_message(self.SubmitRequested())
 
 
 class QuestionApp(Container):
@@ -195,6 +396,7 @@ class QuestionApp(Container):
         Binding("tab", "next_tab", "Next Tab", show=False),
         Binding("shift+tab", "prev_tab", "Previous Tab", show=False),
         Binding("enter", "submit", "Submit", show=False),
+        Binding("space", "toggle", "Toggle", show=False),
         Binding("escape", "cancel", "Cancel", show=False, priority=True),
     ]
 
@@ -217,20 +419,30 @@ class QuestionApp(Container):
         self.questions = args.questions
         self.current_tab = 0
         self.tab_widgets: list[QuestionTab] = []
+        self.validate_tab: QuestionTab | None = None
         self.panel_widgets: list[QuestionPanel] = []
+        self.in_recap_mode = False
+        self.recap_panel: RecapPanel | None = None
+        self.help_widget: Static | None = None
         # Calculate max choices across all questions for consistent padding
         self.max_choices = max(len(q.choices) for q in self.questions) if self.questions else 6
 
     def compose(self) -> ComposeResult:
         with Vertical(id="question-content"):
-            # Tab bar (only if multiple questions)
-            if len(self.questions) > 1:
-                with Horizontal(classes="question-tabs"):
-                    for i, q in enumerate(self.questions):
-                        label = f"Q{i + 1}"
-                        tab = QuestionTab(label, i, is_active=(i == 0))
-                        self.tab_widgets.append(tab)
-                        yield tab
+            # Tab bar
+            with Horizontal(classes="question-tabs"):
+                for i, q in enumerate(self.questions):
+                    header = getattr(q, "header", "")
+                    label = f"Q{i + 1}: {header}" if header else f"Q{i + 1}"
+                    tab = QuestionTab(label, i, is_active=(i == 0))
+                    self.tab_widgets.append(tab)
+                    yield tab
+
+                # Valider tab (hidden until all questions answered)
+                self.validate_tab = QuestionTab("Valider", len(self.questions), is_active=False)
+                self.validate_tab.add_class("question-tab-validate")
+                self.validate_tab.display = False
+                yield self.validate_tab
 
             # Question panels (only one visible at a time)
             with Container(classes="question-panels-container"):
@@ -241,13 +453,31 @@ class QuestionApp(Container):
                     yield panel
 
             # Help text
-            yield Static(self._get_help_text(), classes="question-help")
+            self.help_widget = Static(self._get_help_text(), classes="question-help")
+            yield self.help_widget
 
     def _get_help_text(self) -> str:
-        if len(self.questions) > 1:
-            return "←→/Tab: switch question  |  ↑↓: select  |  Enter: submit all  |  Escape: cancel"
+        if self.in_recap_mode:
+            return "↑↓: select  |  Enter: confirm/edit  |  Escape: go back"
+
+        # Check if current question is multi-select
+        panel = self._get_current_panel()
+        is_multi = panel and panel.multi_select
+
+        if is_multi:
+            if len(self.questions) > 1:
+                return "↑↓: navigate  |  Enter/Space: toggle  |  Tab: next  |  Escape: cancel"
+            else:
+                return "↑↓: navigate  |  Enter/Space: toggle  |  Tab: confirm  |  Escape: cancel"
         else:
-            return "↑↓: select  |  Enter: submit  |  Escape: cancel"
+            if len(self.questions) > 1:
+                return "↑↓: select  |  Enter: confirm choice  |  Tab: next  |  Escape: cancel"
+            else:
+                return "↑↓: select  |  Enter: confirm choice  |  Tab: submit  |  Escape: cancel"
+
+    def _update_help_text(self) -> None:
+        if self.help_widget:
+            self.help_widget.update(self._get_help_text())
 
     async def on_mount(self) -> None:
         # Focus the first panel and highlight its question
@@ -261,7 +491,7 @@ class QuestionApp(Container):
         return None
 
     def _switch_tab(self, new_tab: int) -> None:
-        if new_tab == self.current_tab:
+        if self.in_recap_mode or new_tab == self.current_tab:
             return
 
         # Update tab appearance
@@ -284,45 +514,227 @@ class QuestionApp(Container):
         # Focus the new panel
         new_panel.focus_input()
 
+        # Update help text (may differ between single/multi-select questions)
+        self._update_help_text()
+
     def action_move_up(self) -> None:
+        if self.in_recap_mode:
+            if self.recap_panel:
+                self.recap_panel.move_up()
+            return
         panel = self._get_current_panel()
         if panel:
             panel.move_up()
 
     def action_move_down(self) -> None:
+        if self.in_recap_mode:
+            if self.recap_panel:
+                self.recap_panel.move_down()
+            return
         panel = self._get_current_panel()
         if panel:
             panel.move_down()
 
     def action_next_tab(self) -> None:
-        if len(self.panel_widgets) > 1:
-            new_tab = (self.current_tab + 1) % len(self.panel_widgets)
-            self._switch_tab(new_tab)
+        if self.in_recap_mode:
+            return
+
+        # If on last question (or single question), Tab goes to recap
+        if self.current_tab >= len(self.panel_widgets) - 1:
+            self.run_worker(self._show_recap())
+        elif len(self.panel_widgets) > 1:
+            self._switch_tab(self.current_tab + 1)
 
     def action_prev_tab(self) -> None:
+        if self.in_recap_mode:
+            return
         if len(self.panel_widgets) > 1:
             new_tab = (self.current_tab - 1) % len(self.panel_widgets)
             self._switch_tab(new_tab)
 
+    def _update_current_tab_status(self) -> None:
+        """Update the current tab's answered status."""
+        if self.tab_widgets and 0 <= self.current_tab < len(self.tab_widgets):
+            panel = self._get_current_panel()
+            if panel:
+                self.tab_widgets[self.current_tab].set_answered(panel.is_answered())
+        self._update_validate_tab_visibility()
+
+    def _update_validate_tab_visibility(self) -> None:
+        """Show/hide the Valider tab based on whether all questions are answered."""
+        if not self.validate_tab:
+            return
+        all_answered = all(panel.is_answered() for panel in self.panel_widgets)
+        self.validate_tab.display = all_answered
+
+    def action_toggle(self) -> None:
+        """Toggle the current option (for multi-select questions)."""
+        if self.in_recap_mode:
+            return
+        panel = self._get_current_panel()
+        if panel and panel.multi_select:
+            panel.toggle_current()
+            self._update_current_tab_status()
+
     def action_submit(self) -> None:
-        self._do_submit()
+        if self.in_recap_mode:
+            # In recap mode, Enter selects the current item (edit question or submit)
+            if self.recap_panel:
+                self.recap_panel.select_current()
+            return
+
+        panel = self._get_current_panel()
+        if not panel:
+            return
+
+        if panel.multi_select:
+            # Multi-select: Enter toggles the current option
+            panel.toggle_current()
+        else:
+            # Single-select: Enter confirms the current choice
+            panel.confirm_current()
+
+        self._update_current_tab_status()
 
     def action_cancel(self) -> None:
-        self.post_message(self.Cancelled())
+        if self.in_recap_mode:
+            # Go back to questions
+            self.run_worker(self._hide_recap())
+        else:
+            self.post_message(self.Cancelled())
 
-    def _do_submit(self) -> None:
+    def _get_answers(self) -> list[tuple[str, str, bool]]:
         answers = []
         for panel in self.panel_widgets:
             answer, is_other = panel.get_answer()
             answers.append((panel.question_data.question, answer, is_other))
+        return answers
+
+    async def _show_recap(self) -> None:
+        self.in_recap_mode = True
+
+        # Hide all question panels
+        for panel in self.panel_widgets:
+            panel.display = False
+
+        # Deactivate current question tab, activate Valider tab
+        if self.tab_widgets and 0 <= self.current_tab < len(self.tab_widgets):
+            self.tab_widgets[self.current_tab].set_active(False)
+        if self.validate_tab:
+            self.validate_tab.set_active(True)
+
+        # Create and show recap panel
+        answers = self._get_answers()
+        panels_container = self.query_one(".question-panels-container")
+        self.recap_panel = RecapPanel(answers)
+        await panels_container.mount(self.recap_panel)
+
+        self._update_help_text()
+        self.focus()
+
+    async def _hide_recap(self) -> None:
+        self.in_recap_mode = False
+
+        # Remove recap panel
+        if self.recap_panel:
+            await self.recap_panel.remove()
+            self.recap_panel = None
+
+        # Deactivate Valider tab, reactivate current question tab
+        if self.validate_tab:
+            self.validate_tab.set_active(False)
+        if self.tab_widgets and 0 <= self.current_tab < len(self.tab_widgets):
+            self.tab_widgets[self.current_tab].set_active(True)
+
+        # Show current question panel
+        if self.panel_widgets:
+            self.panel_widgets[self.current_tab].display = True
+            self.panel_widgets[self.current_tab].focus_input()
+
+        self._update_help_text()
+
+    def _do_submit(self) -> None:
+        answers = self._get_answers()
         self.post_message(self.Answered(answers=answers))
 
+    def on_input_changed(self, event: Input.Changed) -> None:
+        """Handle text changes in Other field - update tab status."""
+        self._update_current_tab_status()
+
     def on_input_submitted(self, event: Input.Submitted) -> None:
-        """Handle Enter key in text input."""
-        self._do_submit()
+        """Handle Enter key in text input (Other field)."""
+        panel = self._get_current_panel()
+        if not panel:
+            return
+
+        if panel.multi_select:
+            # In multi-select, Enter in "Other" field toggles the Other checkbox
+            panel.toggle_current()
+        else:
+            # In single-select, Enter in "Other" field confirms the choice
+            panel.confirm_current()
+
+        self._update_current_tab_status()
 
     def on_question_panel_cancel_requested(
         self, message: QuestionPanel.CancelRequested
     ) -> None:
         """Handle cancel request from panel."""
-        self.post_message(self.Cancelled())
+        if self.in_recap_mode:
+            self.run_worker(self._hide_recap())
+        else:
+            self.post_message(self.Cancelled())
+
+    def on_recap_panel_edit_requested(
+        self, message: RecapPanel.EditRequested
+    ) -> None:
+        """Handle request to edit a specific question."""
+        self.run_worker(self._go_to_question(message.question_index))
+
+    def on_recap_panel_submit_requested(
+        self, message: RecapPanel.SubmitRequested
+    ) -> None:
+        """Handle final submission from recap panel."""
+        self._do_submit()
+
+    async def _go_to_question(self, index: int) -> None:
+        """Exit recap mode and go to a specific question for editing."""
+        self.in_recap_mode = False
+
+        # Remove recap panel
+        if self.recap_panel:
+            await self.recap_panel.remove()
+            self.recap_panel = None
+
+        # Deactivate Valider tab
+        if self.validate_tab:
+            self.validate_tab.set_active(False)
+
+        # Switch to the requested question
+        if 0 <= index < len(self.panel_widgets):
+            # Hide all panels first
+            for panel in self.panel_widgets:
+                panel.display = False
+
+            # Update tabs
+            for tab in self.tab_widgets:
+                tab.set_active(False)
+            if self.tab_widgets:
+                self.tab_widgets[index].set_active(True)
+
+            # Show the target panel
+            self.panel_widgets[index].display = True
+            self.current_tab = index
+
+            # Update question text highlight
+            for i, panel in enumerate(self.panel_widgets):
+                text_widget = panel.query_one(".question-text")
+                if i == index:
+                    text_widget.add_class("question-text-active")
+                else:
+                    text_widget.remove_class("question-text-active")
+
+            # Focus the panel
+            self.panel_widgets[index].focus_input()
+
+        self._update_help_text()

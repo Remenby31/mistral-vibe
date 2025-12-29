@@ -67,7 +67,7 @@ class VibeAppFactory(Protocol):
         notifier: FakeVersionUpdateGateway,
         update_cache_repository: FakeUpdateCacheRepository | None = None,
         config: VibeConfig | None = None,
-        initial_mode: AgentMode = AgentMode.DEFAULT,
+        initial_mode: AgentMode = AgentMode.AUTO_APPROVE,
         current_version: str = "0.1.0",
     ) -> VibeApp: ...
 
@@ -82,7 +82,7 @@ def make_vibe_app(vibe_config_with_update_checks_enabled: VibeConfig) -> VibeApp
         update_cache_repository: FakeUpdateCacheRepository
         | None = update_cache_repository,
         config: VibeConfig | None = None,
-        initial_mode: AgentMode = AgentMode.DEFAULT,
+        initial_mode: AgentMode = AgentMode.AUTO_APPROVE,
         current_version: str = "0.1.0",
     ) -> VibeApp:
         return VibeApp(

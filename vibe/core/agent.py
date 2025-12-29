@@ -91,7 +91,7 @@ class Agent:
     def __init__(
         self,
         config: VibeConfig,
-        mode: AgentMode = AgentMode.DEFAULT,
+        mode: AgentMode = AgentMode.AUTO_APPROVE,
         message_observer: Callable[[LLMMessage], None] | None = None,
         max_turns: int | None = None,
         max_price: float | None = None,
@@ -446,9 +446,13 @@ class Agent:
                 result_model = await tool_instance.invoke(**tool_call.args_dict)
                 duration = time.perf_counter() - start_time
 
-                text = "\n".join(
-                    f"{k}: {v}" for k, v in result_model.model_dump().items()
-                )
+                # Use custom formatting if available, otherwise default serialization
+                if hasattr(result_model, "to_response_text"):
+                    text = result_model.to_response_text()
+                else:
+                    text = "\n".join(
+                        f"{k}: {v}" for k, v in result_model.model_dump().items()
+                    )
 
                 self.messages.append(
                     LLMMessage.model_validate(
@@ -870,8 +874,16 @@ class Agent:
         if max_price is not None:
             self._max_price = max_price
 
+        # Preserve callbacks before creating new ToolManager
+        old_callbacks = self.tool_manager._tool_callbacks.copy()
+
         self.tool_manager = ToolManager(lambda: self.config)
         self.skill_manager = SkillManager(lambda: self.config)
+
+        # Restore callbacks on new ToolManager
+        for tool_name, callbacks in old_callbacks.items():
+            for callback_name, callback in callbacks.items():
+                self.tool_manager.set_tool_callback(tool_name, callback_name, callback)
 
         new_system_prompt = get_universal_system_prompt(
             self.tool_manager, self.config, self.skill_manager

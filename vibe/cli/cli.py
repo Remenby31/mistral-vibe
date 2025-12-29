@@ -47,7 +47,7 @@ def get_prompt_from_stdin() -> str | None:
 
 
 def load_config_or_exit(
-    agent: str | None = None, mode: AgentMode = AgentMode.DEFAULT
+    agent: str | None = None, mode: AgentMode = AgentMode.AUTO_APPROVE
 ) -> VibeConfig:
     try:
         return VibeConfig.load(agent, **mode.config_overrides)

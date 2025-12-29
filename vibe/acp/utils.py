@@ -50,4 +50,6 @@ def is_valid_acp_mode(mode_id: str) -> bool:
 
 
 def get_all_acp_session_modes() -> list[SessionMode]:
-    return [agent_mode_to_acp(mode) for mode in AgentMode]
+    from vibe.core.modes import get_mode_order
+
+    return [agent_mode_to_acp(mode) for mode in get_mode_order()]

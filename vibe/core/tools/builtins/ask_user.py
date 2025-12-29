@@ -29,10 +29,18 @@ class Question(BaseModel):
     """A single question to ask the user."""
 
     question: str = Field(description="The question to ask the user")
+    header: str = Field(
+        description="Short header/title for the question tab (1-2 words, e.g. 'Auth', 'Database')",
+        max_length=15,
+    )
     choices: list[AskUserChoice] = Field(
         description="List of available options (2-6 choices). An 'Other' option with free text is always added automatically.",
         min_length=2,
         max_length=6,
+    )
+    multi_select: bool = Field(
+        default=False,
+        description="If True, user can select multiple options. Enter toggles selection, Tab moves to next question.",
     )
 
 
@@ -70,6 +78,21 @@ class AskUserResult(BaseModel):
         """Get the first answer (convenience for single question)."""
         return self.answers[0].answer if self.answers else ""
 
+    def to_response_text(self) -> str:
+        """Format the result for the LLM response."""
+        if not self.answered:
+            return "User cancelled the question(s) without answering."
+
+        if not self.answers:
+            return "No answers provided."
+
+        lines = []
+        for answer in self.answers:
+            prefix = "(custom) " if answer.is_other else ""
+            lines.append(f"Q: {answer.question}\nA: {prefix}{answer.answer}")
+
+        return "\n\n".join(lines)
+
 
 class AskUserConfig(BaseToolConfig):
     """Configuration for the ask_user tool."""
@@ -103,7 +126,8 @@ class AskUser(
         "Ask the user one or more multiple-choice questions and wait for their responses. "
         "Supports up to 6 questions at once, displayed as tabs. Each question has 2-6 choices, "
         "plus an automatic 'Other' option for free text input. "
-        "User navigates between questions with Tab/arrows and selects choices with arrows/numbers."
+        "Questions can be single-select (default) or multi-select. "
+        "User navigates with arrows, Enter confirms/toggles, Tab switches questions."
     )
 
     # Class-level callback that will be set by the UI

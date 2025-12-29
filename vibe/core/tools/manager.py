@@ -42,11 +42,30 @@ class ToolManager:
         self._config_getter = config_getter
         self._instances: dict[str, BaseTool] = {}
         self._search_paths: list[Path] = self._compute_search_paths(self._config)
+        self._tool_callbacks: dict[str, dict[str, Any]] = {}
 
         self._available: dict[str, type[BaseTool]] = {
             cls.get_name(): cls for cls in self._iter_tool_classes(self._search_paths)
         }
         self._integrate_mcp()
+
+    def set_tool_callback(
+        self, tool_name: str, callback_name: str, callback: Any
+    ) -> None:
+        """Register a callback for a specific tool.
+
+        The callback will be set on the tool class when available.
+        """
+        if tool_name not in self._tool_callbacks:
+            self._tool_callbacks[tool_name] = {}
+        self._tool_callbacks[tool_name][callback_name] = callback
+
+        # Apply immediately if tool class is available
+        if tool_name in self._available:
+            tool_class = self._available[tool_name]
+            setter_name = f"set_{callback_name}"
+            if hasattr(tool_class, setter_name):
+                getattr(tool_class, setter_name)(callback)
 
     @property
     def _config(self) -> VibeConfig:
