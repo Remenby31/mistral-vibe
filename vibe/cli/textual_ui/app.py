@@ -10,12 +10,11 @@ from pydantic import BaseModel
 from textual.app import App, ComposeResult
 from textual.binding import Binding, BindingType
 from textual.containers import Horizontal, VerticalScroll
-from textual.events import AppBlur, AppFocus, MouseUp
+from textual.events import AppBlur, AppFocus
 from textual.widget import Widget
 from textual.widgets import Static
 
 from vibe import __version__ as CORE_VERSION
-from vibe.cli.clipboard import copy_selection_to_clipboard
 from vibe.cli.commands import CommandRegistry
 from vibe.cli.terminal_setup import setup_terminal
 from vibe.cli.textual_ui.handlers.event_handler import EventHandler
@@ -475,13 +474,10 @@ class VibeApp(App):  # noqa: PLR0904
             if not self._current_agent_mode.auto_approve:
                 agent.approval_callback = self._approval_callback
 
+            self.agent = agent
+
             # Set up user input callback for ask_user tool
-            # Must configure on the class discovered by ToolManager, not the imported one
-            available_tools = agent.tool_manager.available_tools()
-            if "ask_user" in available_tools:
-                ask_user_class = available_tools["ask_user"]
-                if hasattr(ask_user_class, "set_user_input_callback"):
-                    ask_user_class.set_user_input_callback(self._user_input_callback)
+            self._setup_ask_user_callback()
 
             if self._loaded_messages:
                 non_system_messages = [
@@ -489,12 +485,10 @@ class VibeApp(App):  # noqa: PLR0904
                     for msg in self._loaded_messages
                     if not (msg.role == Role.system)
                 ]
-                agent.messages.extend(non_system_messages)
+                self.agent.messages.extend(non_system_messages)
                 logger.info(
                     "Loaded %d messages from previous session", len(non_system_messages)
                 )
-
-            self.agent = agent
         except asyncio.CancelledError:
             self.agent = None
             return
@@ -591,6 +585,14 @@ class VibeApp(App):  # noqa: PLR0904
         result = await self._pending_question
         self._pending_question = None
         return result
+
+    def _setup_ask_user_callback(self) -> None:
+        """Set up the ask_user callback on the current tool_manager."""
+        if not self.agent:
+            return
+        self.agent.tool_manager.set_tool_callback(
+            "ask_user", "user_input_callback", self._user_input_callback
+        )
 
     async def _handle_agent_turn(self, prompt: str) -> None:
         if not self.agent:
@@ -1164,8 +1166,8 @@ class VibeApp(App):  # noqa: PLR0904
                     self.query_one(ConfigApp).focus()
                 case BottomApp.Approval:
                     self.query_one(ApprovalApp).focus()
-                case app:
-                    assert_never(app)
+                case BottomApp.Question:
+                    self.query_one(QuestionApp).focus()
         except Exception:
             pass
 
@@ -1185,6 +1187,15 @@ class VibeApp(App):  # noqa: PLR0904
             try:
                 approval_app = self.query_one(ApprovalApp)
                 approval_app.action_reject()
+            except Exception:
+                pass
+            self._last_escape_time = None
+            return
+
+        if self._current_bottom_app == BottomApp.Question:
+            try:
+                question_app = self.query_one(QuestionApp)
+                question_app.action_cancel()
             except Exception:
                 pass
             self._last_escape_time = None
@@ -1478,9 +1489,6 @@ class VibeApp(App):  # noqa: PLR0904
             message, title="Update available", severity="information", timeout=10
         )
         self._update_notification_shown = True
-
-    def on_mouse_up(self, event: MouseUp) -> None:
-        copy_selection_to_clipboard(self)
 
     def on_app_blur(self, event: AppBlur) -> None:
         if self._chat_input_container and self._chat_input_container.input_widget:

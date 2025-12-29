@@ -7,11 +7,9 @@ from dotenv import set_key
 from textual.app import ComposeResult
 from textual.binding import Binding, BindingType
 from textual.containers import Center, Horizontal, Vertical
-from textual.events import MouseUp
 from textual.validation import Length
 from textual.widgets import Input, Link, Static
 
-from vibe.cli.clipboard import copy_selection_to_clipboard
 from vibe.core.config import VibeConfig
 from vibe.core.paths.global_paths import GLOBAL_ENV_FILE
 from vibe.setup.onboarding.base import OnboardingScreen
@@ -129,6 +127,3 @@ class ApiKeyScreen(OnboardingScreen):
             self.app.exit(f"save_error:{err}")
             return
         self.app.exit("completed")
-
-    def on_mouse_up(self, event: MouseUp) -> None:
-        copy_selection_to_clipboard(self.app)
