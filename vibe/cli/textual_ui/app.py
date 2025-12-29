@@ -25,6 +25,7 @@ from vibe.cli.textual_ui.terminal_theme import (
 )
 from vibe.cli.textual_ui.widgets.approval_app import ApprovalApp
 from vibe.cli.textual_ui.widgets.chat_input import ChatInputContainer
+from vibe.cli.textual_ui.widgets.question_app import QuestionApp
 from vibe.cli.textual_ui.widgets.compact import CompactMessage
 from vibe.cli.textual_ui.widgets.config_app import ConfigApp
 from vibe.cli.textual_ui.widgets.context_progress import ContextProgress, TokenState
@@ -59,6 +60,7 @@ from vibe.core.config import VibeConfig
 from vibe.core.modes import AgentMode, next_mode
 from vibe.core.paths.config_paths import HISTORY_FILE
 from vibe.core.tools.base import BaseToolConfig, ToolPermission
+from vibe.core.tools.builtins.ask_user import AskUser, AskUserArgs, AskUserResult, Answer
 from vibe.core.types import ApprovalResponse, LLMMessage, Role
 from vibe.core.utils import (
     CancellationReason,
@@ -72,6 +74,7 @@ class BottomApp(StrEnum):
     Approval = auto()
     Config = auto()
     Input = auto()
+    Question = auto()
 
 
 class VibeApp(App):  # noqa: PLR0904
@@ -115,6 +118,7 @@ class VibeApp(App):  # noqa: PLR0904
 
         self._loading_widget: LoadingWidget | None = None
         self._pending_approval: asyncio.Future | None = None
+        self._pending_question: asyncio.Future | None = None
 
         self.event_handler: EventHandler | None = None
         self.commands = CommandRegistry()
@@ -471,6 +475,14 @@ class VibeApp(App):  # noqa: PLR0904
             if not self._current_agent_mode.auto_approve:
                 agent.approval_callback = self._approval_callback
 
+            # Set up user input callback for ask_user tool
+            # Must configure on the class discovered by ToolManager, not the imported one
+            available_tools = agent.tool_manager.available_tools()
+            if "ask_user" in available_tools:
+                ask_user_class = available_tools["ask_user"]
+                if hasattr(ask_user_class, "set_user_input_callback"):
+                    ask_user_class.set_user_input_callback(self._user_input_callback)
+
             if self._loaded_messages:
                 non_system_messages = [
                     msg
@@ -570,6 +582,14 @@ class VibeApp(App):  # noqa: PLR0904
         await self._switch_to_approval_app(tool, args)
         result = await self._pending_approval
         self._pending_approval = None
+        return result
+
+    async def _user_input_callback(self, args: AskUserArgs) -> AskUserResult:
+        """Callback for the ask_user tool to get user input."""
+        self._pending_question = asyncio.Future()
+        await self._switch_to_question_app(args)
+        result = await self._pending_question
+        self._pending_question = None
         return result
 
     async def _handle_agent_turn(self, prompt: str) -> None:
@@ -1048,6 +1068,47 @@ class VibeApp(App):  # noqa: PLR0904
         self.call_after_refresh(approval_app.focus)
         self.call_after_refresh(self._scroll_to_bottom)
 
+    async def _switch_to_question_app(self, args: AskUserArgs) -> None:
+        """Switch to the question input app in the bottom panel."""
+        bottom_container = self.query_one("#bottom-app-container")
+
+        try:
+            chat_input_container = self.query_one(ChatInputContainer)
+            await chat_input_container.remove()
+        except Exception:
+            pass
+
+        if self._mode_indicator:
+            self._mode_indicator.display = False
+
+        question_app = QuestionApp(args=args)
+        await bottom_container.mount(question_app)
+        self._current_bottom_app = BottomApp.Question
+
+        self.call_after_refresh(question_app.focus)
+        self.call_after_refresh(self._scroll_to_bottom)
+
+    async def on_question_app_answered(self, message: QuestionApp.Answered) -> None:
+        """Handle user answering questions."""
+        if self._pending_question and not self._pending_question.done():
+            # Convert list of (question, answer, is_other) to Answer objects
+            answers = [
+                Answer(question=q, answer=a, is_other=o)
+                for q, a, o in message.answers
+            ]
+            result = AskUserResult(answers=answers, answered=True)
+            self._pending_question.set_result(result)
+
+        await self._switch_to_input_app()
+
+    async def on_question_app_cancelled(self, message: QuestionApp.Cancelled) -> None:
+        """Handle user cancelling questions."""
+        if self._pending_question and not self._pending_question.done():
+            result = AskUserResult(answers=[], answered=False)
+            self._pending_question.set_result(result)
+
+        await self._switch_to_input_app()
+
     async def _switch_to_input_app(self) -> None:
         bottom_container = self.query_one("#bottom-app-container")
 
@@ -1060,6 +1121,12 @@ class VibeApp(App):  # noqa: PLR0904
         try:
             approval_app = self.query_one("#approval-app")
             await approval_app.remove()
+        except Exception:
+            pass
+
+        try:
+            question_app = self.query_one("#question-app")
+            await question_app.remove()
         except Exception:
             pass
 
