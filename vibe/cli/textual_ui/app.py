@@ -60,7 +60,7 @@ from vibe.core.config import VibeConfig
 from vibe.core.modes import AgentMode, next_mode
 from vibe.core.paths.config_paths import HISTORY_FILE
 from vibe.core.tools.base import BaseToolConfig, ToolPermission
-from vibe.core.tools.builtins.ask_user import AskUser, AskUserArgs, AskUserResult, Answer
+from vibe.core.tools.builtins.ask_user_question import AskUserQuestion, AskUserArgs, AskUserResult, Answer
 from vibe.core.types import ApprovalResponse, LLMMessage, Role
 from vibe.core.utils import (
     CancellationReason,
@@ -478,8 +478,8 @@ class VibeApp(App):  # noqa: PLR0904
 
             self.agent = agent
 
-            # Set up user input callback for ask_user tool
-            self._setup_ask_user_callback()
+            # Set up user input callback for ask_user_question tool
+            self._setup_ask_user_question_callback()
 
             if self._loaded_messages:
                 non_system_messages = [
@@ -588,12 +588,12 @@ class VibeApp(App):  # noqa: PLR0904
         self._pending_question = None
         return result
 
-    def _setup_ask_user_callback(self) -> None:
-        """Set up the ask_user callback on the current tool_manager."""
+    def _setup_ask_user_question_callback(self) -> None:
+        """Set up the ask_user_question callback on the current tool_manager."""
         if not self.agent:
             return
         self.agent.tool_manager.set_tool_callback(
-            "ask_user", "user_input_callback", self._user_input_callback
+            "ask_user_question", "user_input_callback", self._user_input_callback
         )
 
     async def _handle_agent_turn(self, prompt: str) -> None:

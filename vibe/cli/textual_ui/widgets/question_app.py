@@ -10,7 +10,7 @@ from textual.message import Message
 from textual.widgets import Input, Static
 
 if TYPE_CHECKING:
-    from vibe.core.tools.builtins.ask_user import AskUserArgs, Question
+    from vibe.core.tools.builtins.ask_user_question import AskUserArgs, Question
 
 
 class EscapableInput(Input):
@@ -167,6 +167,9 @@ class QuestionPanel(Container):
 
             choice = self.choices[idx]
             text = choice.label
+            # Add "(Recommended)" indicator for first option
+            if idx == 0:
+                text += " (Recommandé)"
             if choice.description:
                 text += f" - {choice.description}"
 
@@ -267,9 +270,23 @@ class QuestionPanel(Container):
     def is_answered(self) -> bool:
         """Check if this question has been answered."""
         if self.multi_select:
-            return len(self.checked_options) > 0 or self.other_checked
+            # Multi-select: at least one option checked, or "Other" checked WITH content
+            has_regular_selection = len(self.checked_options) > 0
+            has_other_with_content = (
+                self.other_checked
+                and self.text_input
+                and self.text_input.value.strip()
+            )
+            return has_regular_selection or has_other_with_content
         else:
-            return self.confirmed_option is not None
+            # Single-select: must have confirmed option
+            # If "Other" is confirmed, must have content
+            if self.confirmed_option is None:
+                return False
+            if self.confirmed_option == len(self.choices):
+                # "Other" is confirmed - check it has content
+                return bool(self.text_input and self.text_input.value.strip())
+            return True
 
     def get_answer(self) -> tuple[str, bool]:
         """Get the current answer and whether it's an 'Other' response."""
@@ -391,10 +408,10 @@ class QuestionApp(Container):
     BINDINGS: ClassVar[list[BindingType]] = [
         Binding("up", "move_up", "Up", show=False),
         Binding("down", "move_down", "Down", show=False),
-        Binding("left", "prev_tab", "Previous Tab", show=False),
-        Binding("right", "next_tab", "Next Tab", show=False),
-        Binding("tab", "next_tab", "Next Tab", show=False),
-        Binding("shift+tab", "prev_tab", "Previous Tab", show=False),
+        Binding("left", "prev_question", "Previous Question", show=False),
+        Binding("right", "next_question", "Next Question", show=False),
+        Binding("tab", "tab_forward", "Next/Validate", show=False),
+        Binding("shift+tab", "prev_question", "Previous Question", show=False),
         Binding("enter", "submit", "Submit", show=False),
         Binding("space", "toggle", "Toggle", show=False),
         Binding("escape", "cancel", "Cancel", show=False, priority=True),
@@ -466,14 +483,15 @@ class QuestionApp(Container):
 
         if is_multi:
             if len(self.questions) > 1:
-                return "↑↓: navigate  |  Enter/Space: toggle  |  Tab: next  |  Escape: cancel"
+                return "↑↓: navigate  |  ←→: questions  |  Enter/Space: toggle  |  Tab: next  |  Esc: cancel"
             else:
-                return "↑↓: navigate  |  Enter/Space: toggle  |  Tab: confirm  |  Escape: cancel"
+                return "↑↓: navigate  |  Enter/Space: toggle  |  Tab: validate  |  Escape: cancel"
         else:
             if len(self.questions) > 1:
-                return "↑↓: select  |  Enter: confirm choice  |  Tab: next  |  Escape: cancel"
+                return "↑↓: select  |  ←→: questions  |  Enter: confirm  |  Tab: next  |  Esc: cancel"
             else:
-                return "↑↓: select  |  Enter: confirm choice  |  Tab: submit  |  Escape: cancel"
+                # Single question single-select: Enter confirms AND submits (auto-submit)
+                return "↑↓: select  |  Enter: confirm & submit  |  Escape: cancel"
 
     def _update_help_text(self) -> None:
         if self.help_widget:
@@ -535,7 +553,8 @@ class QuestionApp(Container):
         if panel:
             panel.move_down()
 
-    def action_next_tab(self) -> None:
+    def action_tab_forward(self) -> None:
+        """Tab key: go to next question or show recap if on last question."""
         if self.in_recap_mode:
             return
 
@@ -545,12 +564,21 @@ class QuestionApp(Container):
         elif len(self.panel_widgets) > 1:
             self._switch_tab(self.current_tab + 1)
 
-    def action_prev_tab(self) -> None:
+    def action_next_question(self) -> None:
+        """Right arrow: go to next question (no recap, no wrap)."""
         if self.in_recap_mode:
             return
-        if len(self.panel_widgets) > 1:
-            new_tab = (self.current_tab - 1) % len(self.panel_widgets)
-            self._switch_tab(new_tab)
+        # Only navigate if multiple questions and not on last
+        if len(self.panel_widgets) > 1 and self.current_tab < len(self.panel_widgets) - 1:
+            self._switch_tab(self.current_tab + 1)
+
+    def action_prev_question(self) -> None:
+        """Left arrow / Shift+Tab: go to previous question (no wrap)."""
+        if self.in_recap_mode:
+            return
+        # Only navigate if multiple questions and not on first
+        if len(self.panel_widgets) > 1 and self.current_tab > 0:
+            self._switch_tab(self.current_tab - 1)
 
     def _update_current_tab_status(self) -> None:
         """Update the current tab's answered status."""
@@ -595,6 +623,14 @@ class QuestionApp(Container):
             panel.confirm_current()
 
         self._update_current_tab_status()
+
+        # Auto-submit: if single question with single-select and answered, submit directly
+        if (
+            len(self.questions) == 1
+            and not panel.multi_select
+            and panel.is_answered()
+        ):
+            self._do_submit()
 
     def action_cancel(self) -> None:
         if self.in_recap_mode:
@@ -675,6 +711,14 @@ class QuestionApp(Container):
             panel.confirm_current()
 
         self._update_current_tab_status()
+
+        # Auto-submit: if single question with single-select and answered, submit directly
+        if (
+            len(self.questions) == 1
+            and not panel.multi_select
+            and panel.is_answered()
+        ):
+            self._do_submit()
 
     def on_question_panel_cancel_requested(
         self, message: QuestionPanel.CancelRequested
