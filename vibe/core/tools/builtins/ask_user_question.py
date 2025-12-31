@@ -116,7 +116,7 @@ UserInputCallback = Callable[
 ]
 
 
-class AskUser(
+class AskUserQuestion(
     BaseTool[AskUserArgs, AskUserResult, AskUserConfig, AskUserState],
     ToolUIData[AskUserArgs, AskUserResult],
 ):
@@ -125,9 +125,10 @@ class AskUser(
     description: ClassVar[str] = (
         "Ask the user one or more multiple-choice questions and wait for their responses. "
         "Supports up to 6 questions at once, displayed as tabs. Each question has 2-6 choices, "
-        "plus an automatic 'Other' option for free text input. "
+        "plus an automatic 'Other' option for free text input. The first option is recommended by default. "
         "Questions can be single-select (default) or multi-select. "
-        "User navigates with arrows, Enter confirms/toggles, Tab switches questions."
+        "User navigates with arrows, Enter confirms/toggles, Tab switches questions. "
+        "For single questions with single-select, auto-submits when user confirms a choice."
     )
 
     # Class-level callback that will be set by the UI
