@@ -6,12 +6,14 @@ from weakref import WeakKeyDictionary
 from textual.widget import Widget
 
 from vibe.cli.textual_ui.widgets.messages import (
+    AgentNotificationMessage,
     AssistantMessage,
     ReasoningMessage,
     UserMessage,
 )
 from vibe.cli.textual_ui.widgets.tools import ToolCallMessage, ToolResultMessage
 from vibe.core.types import LLMMessage, Role
+from vibe.core.utils import parse_agent_notification
 
 
 def non_system_history_messages(messages: Sequence[LLMMessage]) -> list[LLMMessage]:
@@ -44,7 +46,12 @@ def build_history_widgets(
         match msg.role:
             case Role.user:
                 if msg.content:
-                    widget = UserMessage(msg.content)
+                    notif = parse_agent_notification(msg.content)
+                    if notif:
+                        pid, notif_type, body = notif
+                        widget = AgentNotificationMessage(pid, notif_type, body)
+                    else:
+                        widget = UserMessage(msg.content)
                     widgets.append(widget)
                     history_widget_indices[widget] = history_index
 
@@ -99,6 +106,7 @@ def visible_history_widgets_count(children: list[Widget]) -> int:
     history_widget_types = (
         UserMessage,
         AssistantMessage,
+        AgentNotificationMessage,
         ReasoningMessage,
         ToolCallMessage,
         ToolResultMessage,

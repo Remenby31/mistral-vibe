@@ -217,6 +217,25 @@ class ReasoningMessage(SpinnerMixin, StreamingMessageBase):
                 self._to_write_buffer = ""
 
 
+class AgentNotificationMessage(Static):
+    """Widget for displaying agent IPC notifications with a distinct style."""
+
+    def __init__(self, sender_pid: int, notification_type: str, content: str) -> None:
+        super().__init__()
+        self.add_class("agent-notification-message")
+        self._sender_pid = sender_pid
+        self._notification_type = notification_type
+        self._content = content
+
+    def compose(self) -> ComposeResult:
+        with Horizontal(classes="agent-notification-container"):
+            yield ExpandingBorder(classes="agent-notification-border")
+            yield NoMarkupStatic(
+                f"Agent #{self._sender_pid} [{self._notification_type}] {self._content}",
+                classes="agent-notification-content",
+            )
+
+
 class UserCommandMessage(Static):
     def __init__(self, content: str) -> None:
         super().__init__()

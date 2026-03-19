@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import dataclass
+import os
 from pathlib import Path
 import sys
+import uuid
 
 from rich import print as rprint
 import tomli_w
@@ -25,6 +28,15 @@ from vibe.core.session.session_loader import SessionLoader
 from vibe.core.types import EntrypointMetadata, LLMMessage, OutputFormat, Role
 from vibe.core.utils import ConversationLimitException
 from vibe.setup.onboarding import run_onboarding
+
+
+@dataclass
+class IPCBootConfig:
+    """Config passed to the TUI when starting in IPC mode."""
+
+    session_id: str
+    parent_pid: int | None
+    pid_file: str | None
 
 
 def get_initial_agent_name(args: argparse.Namespace) -> str:
@@ -139,6 +151,24 @@ def _resume_previous_session(
     )
 
 
+def _setup_ipc_mode(args: argparse.Namespace) -> IPCBootConfig:
+    """Prepare IPC boot config from CLI args."""
+    session_id = getattr(args, "ipc_session_id", None) or uuid.uuid4().hex[:12]
+    parent_pid = getattr(args, "ipc_parent_pid", None)
+    pid_file = getattr(args, "ipc_pid_file", None)
+
+    # Write our PID to the pid file so the parent can find us
+    if pid_file:
+        Path(pid_file).parent.mkdir(parents=True, exist_ok=True)
+        Path(pid_file).write_text(str(os.getpid()))
+
+    return IPCBootConfig(
+        session_id=session_id,
+        parent_pid=parent_pid,
+        pid_file=pid_file,
+    )
+
+
 def run_cli(args: argparse.Namespace) -> None:
     load_dotenv_values()
     bootstrap_config_files()
@@ -189,6 +219,11 @@ def run_cli(args: argparse.Namespace) -> None:
                 print(f"Error: {e}", file=sys.stderr)
                 sys.exit(1)
         else:
+            # Handle agentree IPC mode
+            ipc_mode = getattr(args, "ipc_mode", False)
+            if ipc_mode:
+                initial_agent_name = BuiltinAgentName.AUTO_APPROVE
+
             agent_loop = AgentLoop(
                 config,
                 agent_name=initial_agent_name,
@@ -204,10 +239,16 @@ def run_cli(args: argparse.Namespace) -> None:
             if loaded_session:
                 _resume_previous_session(agent_loop, *loaded_session)
 
+            # Setup agentree IPC if in IPC mode
+            ipc_config = None
+            if ipc_mode:
+                ipc_config = _setup_ipc_mode(args)
+
             run_textual_ui(
                 agent_loop=agent_loop,
                 initial_prompt=args.initial_prompt or stdin_prompt,
                 teleport_on_start=args.teleport,
+                ipc_config=ipc_config,
             )
 
     except (KeyboardInterrupt, EOFError):

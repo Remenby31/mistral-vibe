@@ -87,6 +87,12 @@ def parse_arguments() -> argparse.Namespace:
     # Feature flag for teleport, not exposed to the user yet
     parser.add_argument("--teleport", action="store_true", help=argparse.SUPPRESS)
 
+    # Agentree IPC flags (used internally by spawn_session tool)
+    parser.add_argument("--ipc-mode", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--ipc-parent-pid", type=int, help=argparse.SUPPRESS)
+    parser.add_argument("--ipc-session-id", type=str, help=argparse.SUPPRESS)
+    parser.add_argument("--ipc-pid-file", type=str, help=argparse.SUPPRESS)
+
     continuation_group = parser.add_mutually_exclusive_group()
     continuation_group.add_argument(
         "-c",

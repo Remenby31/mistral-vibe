@@ -316,6 +316,7 @@ class VibeApp(App):  # noqa: PLR0904
 
         with Horizontal(id="bottom-bar"):
             yield PathDisplay(self.config.displayed_workdir or Path.cwd())
+            yield NoMarkupStatic("", id="agentree-indicator")
             yield NoMarkupStatic(id="spacer")
             yield ContextProgress()
 
@@ -358,6 +359,11 @@ class VibeApp(App):  # noqa: PLR0904
         self.agent_loop.emit_new_session_telemetry()
 
         self.call_after_refresh(self._refresh_banner)
+
+        # Bootstrap agentree IPC if started with --ipc-mode
+        ipc_config = getattr(self, "_ipc_config", None)
+        if ipc_config is not None:
+            self.run_worker(self._bootstrap_ipc(ipc_config), exclusive=False)
 
         if self._initial_prompt or self._teleport_on_start:
             self.call_after_refresh(self._process_initial_prompt)
@@ -1191,7 +1197,164 @@ class VibeApp(App):  # noqa: PLR0904
             return None
         return self.agent_loop.session_logger.session_id[:8]
 
+    async def _toggle_agentree(self) -> None:
+        from vibe.core.ipc import state as agentree_state
+
+        if agentree_state.is_enabled():
+            await self._disable_agentree()
+        else:
+            await self._enable_agentree()
+
+    async def _enable_agentree(self) -> None:
+        import uuid
+
+        from vibe.core.ipc import state as agentree_state
+        from vibe.core.ipc.middleware import IPCMessageMiddleware
+        from vibe.core.ipc.registry import AgentreeRegistry
+        from vibe.core.ipc.server import IPCServer
+        from vibe.core.ipc.types import RegistryEntry
+
+        session_id = uuid.uuid4().hex[:12]
+        server = IPCServer(session_id)
+        await server.start()
+
+        agentree_state.enable(server)
+
+        # Register in registry
+        registry = AgentreeRegistry()
+        import os
+
+        registry.register(RegistryEntry(
+            pid=os.getpid(),
+            session_id=session_id,
+            socket_path=server.socket_path,
+            cwd=str(Path.cwd()),
+        ))
+
+        # Add IPC middleware
+        self.agent_loop.middleware_pipeline.add(IPCMessageMiddleware())
+
+        # Refresh system prompt
+        self._refresh_agentree_system_prompt()
+        self._update_agentree_indicator(True)
+
+        await self._mount_and_scroll(
+            UserCommandMessage("Agentree enabled")
+        )
+
+    async def _disable_agentree(self) -> None:
+        from vibe.core.ipc import state as agentree_state
+        from vibe.core.ipc.middleware import IPCMessageMiddleware
+        from vibe.core.ipc.registry import AgentreeRegistry
+
+        # Kill all children
+        await self._kill_all_children()
+
+        server = agentree_state.get_server()
+        if server:
+            await server.stop()
+
+        import os
+
+        AgentreeRegistry().unregister(os.getpid())
+        agentree_state.disable()
+
+        # Remove IPC middleware
+        self.agent_loop.middleware_pipeline.middlewares = [
+            mw for mw in self.agent_loop.middleware_pipeline.middlewares
+            if not isinstance(mw, IPCMessageMiddleware)
+        ]
+
+        self._refresh_agentree_system_prompt()
+        self._update_agentree_indicator(False)
+
+        await self._mount_and_scroll(
+            UserCommandMessage("Agentree disabled")
+        )
+
+    async def _kill_all_children(self) -> None:
+        import os
+        import signal
+
+        from vibe.core.ipc import client as ipc_client
+        from vibe.core.ipc.registry import AgentreeRegistry
+
+        registry = AgentreeRegistry()
+        my_pid = os.getpid()
+        for session in registry.list_sessions():
+            if session.parent_pid == my_pid:
+                await ipc_client.request_shutdown(session.socket_path)
+                try:
+                    os.kill(session.pid, signal.SIGTERM)
+                except ProcessLookupError:
+                    pass
+                registry.unregister(session.pid)
+
+    def _update_agentree_indicator(self, enabled: bool) -> None:
+        """Update the statusline indicator."""
+        try:
+            indicator = self.query_one("#agentree-indicator", NoMarkupStatic)
+            indicator.update(" agentree" if enabled else "")
+        except Exception:
+            pass
+
+    def _refresh_agentree_system_prompt(self) -> None:
+        """Rebuild system prompt to include/exclude agentree section."""
+        from vibe.core.system_prompt import get_universal_system_prompt
+
+        new_prompt = get_universal_system_prompt(
+            self.agent_loop.tool_manager,
+            self.agent_loop.config,
+            self.agent_loop.skill_manager,
+            self.agent_loop.agent_manager,
+        )
+        # Replace the system message (first message)
+        if self.agent_loop.messages and self.agent_loop.messages[0].role == Role.system:
+            self.agent_loop.messages.reset([
+                LLMMessage(role=Role.system, content=new_prompt),
+                *[msg for msg in self.agent_loop.messages if msg.role != Role.system],
+            ])
+
+    async def _bootstrap_ipc(self, ipc_config: object) -> None:
+        """Bootstrap IPC when started with --ipc-mode."""
+        from vibe.core.ipc import state as agentree_state
+        from vibe.core.ipc.middleware import IPCMessageMiddleware
+        from vibe.core.ipc.registry import AgentreeRegistry
+        from vibe.core.ipc.server import IPCServer
+        from vibe.core.ipc.types import RegistryEntry
+
+        session_id = getattr(ipc_config, "session_id", "unknown")
+        parent_pid = getattr(ipc_config, "parent_pid", None)
+
+        server = IPCServer(session_id)
+        await server.start()
+        agentree_state.enable(server, parent_pid=parent_pid)
+
+        import os
+
+        registry = AgentreeRegistry()
+        registry.register(RegistryEntry(
+            pid=os.getpid(),
+            session_id=session_id,
+            socket_path=server.socket_path,
+            cwd=str(Path.cwd()),
+            parent_pid=parent_pid,
+        ))
+
+        self.agent_loop.middleware_pipeline.add(IPCMessageMiddleware())
+        self._refresh_agentree_system_prompt()
+        self._update_agentree_indicator(True)
+
     async def _exit_app(self) -> None:
+        # Kill agentree children on exit
+        from vibe.core.ipc import state as agentree_state
+
+        if agentree_state.is_enabled():
+            await self._kill_all_children()
+            server = agentree_state.get_server()
+            if server:
+                await server.stop()
+
         self.exit(result=self._get_session_resume_info())
 
     async def _setup_terminal(self) -> None:
@@ -1744,6 +1907,7 @@ def run_textual_ui(
     agent_loop: AgentLoop,
     initial_prompt: str | None = None,
     teleport_on_start: bool = False,
+    ipc_config: object | None = None,
 ) -> None:
     update_notifier = PyPIUpdateGateway(project_name="mistral-vibe")
     update_cache_repository = FileSystemUpdateCacheRepository()
@@ -1756,5 +1920,6 @@ def run_textual_ui(
         update_cache_repository=update_cache_repository,
         plan_offer_gateway=plan_offer_gateway,
     )
+    app._ipc_config = ipc_config  # type: ignore[attr-defined]
     session_id = app.run()
     _print_session_resume_message(session_id)

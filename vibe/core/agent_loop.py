@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncGenerator, Callable, Generator
 import contextlib
+import os
 from enum import StrEnum, auto
 from http import HTTPStatus
 import json
@@ -63,6 +64,7 @@ from vibe.core.tools.mcp import MCPRegistry
 from vibe.core.tools.mcp_sampling import MCPSamplingHandler
 from vibe.core.trusted_folders import has_agents_md_file
 from vibe.core.types import (
+    AgentNotificationEvent,
     AgentStats,
     ApprovalCallback,
     ApprovalResponse,
@@ -394,6 +396,19 @@ class AgentLoop:
                     )
                     self.messages.append(injected_message)
 
+                    # Emit events for agent notifications so TUI can render them
+                    from vibe.core.utils import parse_agent_notification
+
+                    for line in result.message.split("\n\n"):
+                        notif = parse_agent_notification(line)
+                        if notif:
+                            pid, notif_type, body = notif
+                            yield AgentNotificationEvent(
+                                sender_pid=pid,
+                                notification_type=notif_type,
+                                content=body,
+                            )
+
             case MiddlewareAction.COMPACT:
                 old_tokens = result.metadata.get(
                     "old_tokens", self.stats.context_tokens
@@ -482,8 +497,57 @@ class AgentLoop:
                 if user_cancelled:
                     return
 
+                # Auto-notify parent when agent goes idle
+                if should_break_loop:
+                    await self._notify_parent_if_idle(last_message)
+
         finally:
             await self._save_messages()
+
+    async def _notify_parent_if_idle(self, last_message: LLMMessage) -> None:
+        """Auto-notify parent when this agent goes idle (waiting for user input)."""
+        from vibe.core.ipc import state as agentree_state
+
+        if not agentree_state.is_enabled():
+            return
+
+        parent_pid = agentree_state.get_parent_pid()
+        if not parent_pid:
+            return
+
+        # Skip if the last tool call was already a send_message to the parent
+        if self._last_tool_was_send_to_parent(parent_pid):
+            return
+
+        from vibe.core.ipc import client as ipc_client
+        from vibe.core.ipc.registry import AgentreeRegistry
+
+        registry = AgentreeRegistry()
+        parent = registry.get_session(parent_pid)
+        if not parent:
+            return
+
+        content = str(last_message.content) if last_message.content else ""
+        await ipc_client.send_message(
+            parent.socket_path,
+            sender_pid=os.getpid(),
+            content=f"[idle] {content}",
+        )
+
+    def _last_tool_was_send_to_parent(self, parent_pid: int) -> bool:
+        """Check if the most recent tool call was send_message to the parent."""
+        for msg in reversed(self.messages):
+            if msg.role == Role.assistant and msg.tool_calls:
+                for tc in msg.tool_calls:
+                    if tc.function.name == "send_message":
+                        args = tc.function.arguments or ""
+                        if str(parent_pid) in args:
+                            return True
+                return False
+            if msg.role == Role.tool:
+                continue
+            break
+        return False
 
     async def _perform_llm_turn(self) -> AsyncGenerator[BaseEvent, None]:
         if self.enable_streaming:
@@ -494,7 +558,14 @@ class AgentLoop:
             if assistant_event.content:
                 yield assistant_event
 
+        # Record assistant message for agentree IPC read_session
         last_message = self.messages[-1]
+        if last_message.role == Role.assistant and last_message.content:
+            from vibe.core.ipc import state as agentree_state
+
+            server = agentree_state.get_server()
+            if server:
+                server.record_assistant_message(str(last_message.content))
 
         parsed = self.format_handler.parse_message(last_message)
         resolved = self.format_handler.resolve_tool_calls(parsed, self.tool_manager)

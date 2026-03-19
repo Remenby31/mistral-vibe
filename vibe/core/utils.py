@@ -22,8 +22,31 @@ CANCELLATION_TAG = "user_cancellation"
 TOOL_ERROR_TAG = "tool_error"
 VIBE_STOP_EVENT_TAG = "vibe_stop_event"
 VIBE_WARNING_TAG = "vibe_warning"
+AGENT_NOTIFICATION_PREFIX = "[agent_notification:"
 
 KNOWN_TAGS = [CANCELLATION_TAG, TOOL_ERROR_TAG, VIBE_STOP_EVENT_TAG, VIBE_WARNING_TAG]
+
+
+def parse_agent_notification(content: str) -> tuple[int, str, str] | None:
+    """Parse an agent notification message.
+
+    Format: [agent_notification:pid:TYPE] content
+    Returns (pid, notification_type, content) or None if not a notification.
+    """
+    if not content.startswith(AGENT_NOTIFICATION_PREFIX):
+        return None
+    try:
+        bracket_end = content.index("]")
+        header = content[1:bracket_end]  # agent_notification:pid:TYPE
+        parts = header.split(":")
+        if len(parts) < 3:
+            return None
+        pid = int(parts[1])
+        notif_type = parts[2]
+        body = content[bracket_end + 2:] if len(content) > bracket_end + 1 else ""
+        return pid, notif_type, body
+    except (ValueError, IndexError):
+        return None
 
 
 class TaggedText:

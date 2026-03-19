@@ -4,11 +4,16 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 from vibe.cli.textual_ui.widgets.compact import CompactMessage
-from vibe.cli.textual_ui.widgets.messages import AssistantMessage, ReasoningMessage
+from vibe.cli.textual_ui.widgets.messages import (
+    AgentNotificationMessage,
+    AssistantMessage,
+    ReasoningMessage,
+)
 from vibe.cli.textual_ui.widgets.no_markup_static import NoMarkupStatic
 from vibe.cli.textual_ui.widgets.tools import ToolCallMessage, ToolResultMessage
 from vibe.core.tools.ui import ToolUIDataAdapter
 from vibe.core.types import (
+    AgentNotificationEvent,
     AssistantEvent,
     BaseEvent,
     CompactEndEvent,
@@ -62,6 +67,9 @@ class EventHandler:
             case CompactEndEvent():
                 await self.finalize_streaming()
                 await self._handle_compact_end(event)
+            case AgentNotificationEvent():
+                await self.finalize_streaming()
+                await self._handle_agent_notification(event)
             case UserMessageEvent():
                 await self.finalize_streaming()
             case _:
@@ -165,6 +173,14 @@ class EventHandler:
                 old_tokens=event.old_context_tokens, new_tokens=event.new_context_tokens
             )
             self.current_compact = None
+
+    async def _handle_agent_notification(self, event: AgentNotificationEvent) -> None:
+        widget = AgentNotificationMessage(
+            sender_pid=event.sender_pid,
+            notification_type=event.notification_type,
+            content=event.content,
+        )
+        await self.mount_callback(widget)
 
     async def _handle_unknown_event(self, event: BaseEvent) -> None:
         await self.mount_callback(NoMarkupStatic(str(event), classes="unknown-event"))

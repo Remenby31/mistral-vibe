@@ -398,6 +398,12 @@ class CompactEndEvent(BaseEvent):
     tool_call_id: str
 
 
+class AgentNotificationEvent(BaseEvent):
+    sender_pid: int
+    notification_type: str
+    content: str
+
+
 class OutputFormat(StrEnum):
     TEXT = auto()
     JSON = auto()

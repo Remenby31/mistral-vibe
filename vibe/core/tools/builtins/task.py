@@ -55,6 +55,13 @@ class Task(
     BaseTool[TaskArgs, TaskResult, TaskToolConfig, BaseToolState],
     ToolUIData[TaskArgs, TaskResult],
 ):
+    @classmethod
+    def is_available(cls) -> bool:
+        """Disabled when agentree mode is active (replaced by IPC tools)."""
+        from vibe.core.ipc import state as agentree_state
+
+        return not agentree_state.is_enabled()
+
     description: ClassVar[str] = (
         "Delegate a task to a subagent for independent execution. "
         "Useful for exploration, research, or parallel work that doesn't "

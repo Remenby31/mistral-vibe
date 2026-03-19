@@ -92,6 +92,11 @@ class CommandRegistry:
                 description="Uninstall the Lean 4 agent",
                 handler="_uninstall_lean",
             ),
+            "agentree": Command(
+                aliases=frozenset(["/agentree"]),
+                description="Toggle agentree multi-session IPC mode",
+                handler="_toggle_agentree",
+            ),
         }
 
         for command in excluded_commands:

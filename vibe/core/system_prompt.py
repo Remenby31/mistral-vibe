@@ -244,6 +244,36 @@ def _get_available_subagents_section(agent_manager: AgentManager) -> str:
     return "\n".join(lines)
 
 
+def _get_agentree_section() -> str:
+    """Build the agentree IPC section for the system prompt."""
+    from vibe.core.ipc import state as agentree_state
+
+    if not agentree_state.is_enabled():
+        return ""
+
+    lines = [
+        "# Agentree (Multi-Session IPC)",
+        "",
+        f"Your PID is: {os.getpid()}",
+    ]
+
+    parent_pid = agentree_state.get_parent_pid()
+    if parent_pid:
+        lines.append(f"You were spawned by agent pid:{parent_pid}.")
+        lines.append(f"Use send_message(pid={parent_pid}, message=...) to communicate with it.")
+
+    lines.extend([
+        "",
+        "You can spawn other agent sessions in separate terminals, communicate with them,",
+        "and read their output. Messages from other agents appear as:",
+        "[agent:pid:XXXX] message content",
+        "",
+        "Available tools: spawn_session, send_message, read_session, list_sessions, kill_session",
+    ])
+
+    return "\n".join(lines)
+
+
 def get_universal_system_prompt(
     tool_manager: ToolManager,
     config: VibeConfig,
@@ -274,6 +304,10 @@ def get_universal_system_prompt(
         subagents_section = _get_available_subagents_section(agent_manager)
         if subagents_section:
             sections.append(subagents_section)
+
+    agentree_section = _get_agentree_section()
+    if agentree_section:
+        sections.append(agentree_section)
 
     if config.include_project_context:
         is_dangerous, reason = is_dangerous_directory()

@@ -96,6 +96,13 @@ class ProjectContextConfig(BaseSettings):
     timeout_seconds: float = 2.0
 
 
+class AgentreeConfig(BaseSettings):
+    """Configuration for the agentree multi-session IPC feature."""
+
+    terminal_backend: str = ""
+    supervision_interval: int = 30
+
+
 class SessionLoggingConfig(BaseSettings):
     save_dir: str = ""
     session_prefix: str = "session"
@@ -375,6 +382,7 @@ class VibeConfig(BaseSettings):
 
     project_context: ProjectContextConfig = Field(default_factory=ProjectContextConfig)
     session_logging: SessionLoggingConfig = Field(default_factory=SessionLoggingConfig)
+    agentree: AgentreeConfig = Field(default_factory=AgentreeConfig)
     tools: dict[str, BaseToolConfig] = Field(default_factory=dict)
     tool_paths: list[Path] = Field(
         default_factory=list,

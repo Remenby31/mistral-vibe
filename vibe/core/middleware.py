@@ -218,6 +218,7 @@ class MiddlewarePipeline:
                 messages_to_inject.append(result.message)
             elif result.action in {MiddlewareAction.STOP, MiddlewareAction.COMPACT}:
                 return result
+
         if messages_to_inject:
             combined_message = "\n\n".join(messages_to_inject)
             return MiddlewareResult(
