@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 
 from vibe.core.ipc.terminal.base import TerminalBackend
+from vibe.core.ipc.terminal.ghostty import GhosttyBackend
 from vibe.core.ipc.terminal.kitty import KittyBackend
 from vibe.core.ipc.terminal.tmux import TmuxBackend
 from vibe.core.ipc.terminal.wezterm import WeztermBackend
@@ -16,6 +17,7 @@ logger = logging.getLogger(__name__)
 
 # Ordered by preference — more feature-rich terminals first
 BACKENDS: list[type[TerminalBackend]] = [
+    GhosttyBackend,
     KittyBackend,
     WeztermBackend,
     TmuxBackend,
