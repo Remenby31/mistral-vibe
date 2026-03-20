@@ -31,15 +31,20 @@ class GhosttyBackend(TerminalBackend):
         if platform.system() == "Darwin" and os.path.isfile(_GHOSTTY_MACOS_BIN):
             # On macOS, the `ghostty` CLI broadcasts -e commands to ALL
             # existing windows, multiplying spawns by the open window count.
-            # Calling the app binary directly with --command opens exactly
-            # one new window per invocation.
-            args = [
-                _GHOSTTY_MACOS_BIN,
+            # Use `open -g -n -a Ghostty` which:
+            #   -g: opens in background (behind parent window)
+            #   -n: opens a new instance (one window per call)
+            ghostty_args = [
                 f"--command=sh -c {shlex.quote(full_cmd)}",
                 f"--title={title}",
             ]
             if cwd:
-                args.append(f"--working-directory={cwd}")
+                ghostty_args.append(f"--working-directory={cwd}")
+
+            args = [
+                "open", "-g", "-n", "-a", "/Applications/Ghostty.app",
+                "--args",
+            ] + ghostty_args
         else:
             args = ["ghostty", f"--title={title}"]
             if cwd:
