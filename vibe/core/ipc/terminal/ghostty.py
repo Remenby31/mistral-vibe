@@ -10,10 +10,14 @@ import subprocess
 from vibe.core.ipc.terminal.base import TerminalBackend
 
 
+_CASCADE_OFFSET = 30  # pixels offset per agent window
+
+
 class GhosttyBackend(TerminalBackend):
     """Spawn sessions in new Ghostty windows."""
 
     name = "ghostty"
+    _spawn_count: int = 1
 
     @classmethod
     def detect(cls) -> bool:
@@ -28,6 +32,7 @@ class GhosttyBackend(TerminalBackend):
 
         if platform.system() == "Darwin":
             self._spawn_macos(full_cmd, title)
+            self._spawn_count += 1
         else:
             args = ["ghostty", f"--title={title}"]
             if cwd:
@@ -71,12 +76,14 @@ tell application "System Events"
         if parentWindow is not missing value then
             set parentPos to position of parentWindow
             set parentSize to size of parentWindow
+            set offsetX to {self._spawn_count * _CASCADE_OFFSET}
+            set offsetY to {self._spawn_count * _CASCADE_OFFSET}
             -- Find the newly created window (last one without Claude/Vibe in title)
             set allWindows to every window
             repeat with w in allWindows
                 set n to name of w
                 if n does not contain "Claude" and n does not contain "Vibe" then
-                    set position of w to parentPos
+                    set position of w to {{(item 1 of parentPos) + offsetX, (item 2 of parentPos) + offsetY}}
                     set size of w to parentSize
                 end if
             end repeat
