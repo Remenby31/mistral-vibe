@@ -77,7 +77,7 @@ tell application "System Events"
             set parentPos to position of parentWindow
             set parentSize to size of parentWindow
             set offsetX to {self._spawn_count * _CASCADE_OFFSET}
-            set offsetY to {self._spawn_count * _CASCADE_OFFSET}
+            set offsetY to -{self._spawn_count * _CASCADE_OFFSET}
             -- Find the newly created window (last one without Claude/Vibe in title)
             set allWindows to every window
             repeat with w in allWindows
