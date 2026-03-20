@@ -17,7 +17,6 @@ class GhosttyBackend(TerminalBackend):
     """Spawn sessions in new Ghostty windows."""
 
     name = "ghostty"
-    _spawn_count: int = 1
 
     @classmethod
     def detect(cls) -> bool:
@@ -32,7 +31,6 @@ class GhosttyBackend(TerminalBackend):
 
         if platform.system() == "Darwin":
             self._spawn_macos(full_cmd, title)
-            self._spawn_count += 1
         else:
             args = ["ghostty", f"--title={title}"]
             if cwd:
@@ -46,13 +44,30 @@ class GhosttyBackend(TerminalBackend):
         Uses Ghostty's native AppleScript API (1.3+) to create windows
         within the existing Ghostty process. This avoids the broadcast
         bug where `ghostty -e` multiplies commands across all windows.
-        After spawning, the parent window is raised back to front.
+
+        The cascade offset is computed inside AppleScript by counting
+        existing agent windows, so it works correctly even with parallel
+        spawns or when the caller doesn't know its own index.
         """
         # Escape for AppleScript string (backslashes and quotes)
         escaped_cmd = full_cmd.replace("\\", "\\\\").replace('"', '\\"')
-        escaped_title = title.replace("\\", "\\\\").replace('"', '\\"')
 
         applescript = f'''
+-- Snapshot state before creating the new window
+tell application "System Events"
+    tell process "Ghostty"
+        set agentCount to 0
+        repeat with w in (every window)
+            set n to name of w
+            if n does not contain "Claude" and n does not contain "Vibe" then
+                set agentCount to agentCount + 1
+            end if
+        end repeat
+        set windowsBefore to id of every window
+    end tell
+end tell
+
+-- Create the new window via Ghostty AppleScript API
 tell application "Ghostty"
     set cfg to new surface configuration
     set w to new window with configuration cfg
@@ -61,9 +76,11 @@ tell application "Ghostty"
     send key "enter" to t
 end tell
 
+delay 0.3
+
+-- Position only the NEW window
 tell application "System Events"
     tell process "Ghostty"
-        -- Position agent at same location as the frontmost Claude/Vibe window
         set parentWindow to missing value
         repeat with w in (every window)
             set n to name of w
@@ -76,27 +93,43 @@ tell application "System Events"
         if parentWindow is not missing value then
             set parentPos to position of parentWindow
             set parentSize to size of parentWindow
-            set offsetX to {self._spawn_count * _CASCADE_OFFSET}
-            set offsetY to -{self._spawn_count * _CASCADE_OFFSET}
-            -- Find the newly created window (last one without Claude/Vibe in title)
-            set allWindows to every window
-            repeat with w in allWindows
-                set n to name of w
-                if n does not contain "Claude" and n does not contain "Vibe" then
+            set cascadeIndex to agentCount + 1
+            set offsetX to cascadeIndex * {_CASCADE_OFFSET}
+            set offsetY to -(cascadeIndex * {_CASCADE_OFFSET})
+
+            repeat with w in (every window)
+                if (id of w) is not in windowsBefore then
                     set position of w to {{(item 1 of parentPos) + offsetX, (item 2 of parentPos) + offsetY}}
                     set size of w to parentSize
+                    exit repeat
                 end if
             end repeat
-
-            -- Raise parent back to front
-            perform action "AXRaise" of parentWindow
         end if
     end tell
 end tell
+
 '''
-        subprocess.Popen(  # noqa: S603
+        subprocess.run(  # noqa: S603
             ["osascript", "-e", applescript],
-            start_new_session=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+
+        # Refocus parent in a separate osascript call — must be separate
+        # because Ghostty re-focuses the new window at the end of the
+        # creation script, overriding any activate within the same script.
+        refocus = '''
+tell application "Ghostty"
+    repeat with w in (every window)
+        if name of w contains "Claude" or name of w contains "Vibe" then
+            activate window w
+            exit repeat
+        end if
+    end repeat
+end tell
+'''
+        subprocess.run(  # noqa: S603
+            ["osascript", "-e", refocus],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
