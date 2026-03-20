@@ -138,4 +138,10 @@ class CommandRegistry:
         for cmd in self.commands.values():
             aliases = ", ".join(f"`{alias}`" for alias in sorted(cmd.aliases))
             lines.append(f"- {aliases}: {cmd.description}")
+
+        lines.append("")
+        lines.append("### Loop")
+        lines.append("")
+        lines.append("- `/loop [interval] <prompt>`: Run a prompt on a recurring interval (default: 10m)")
+        lines.append("- `/loop stop`, `/loop-stop`: Stop the active loop")
         return "\n".join(lines)

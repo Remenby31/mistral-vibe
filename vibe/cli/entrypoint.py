@@ -70,6 +70,13 @@ def parse_arguments() -> argparse.Namespace:
         "'streaming' for newline-delimited JSON per message.",
     )
     parser.add_argument(
+        "--loop",
+        type=str,
+        metavar="INTERVAL",
+        help="Run prompt repeatedly at the given interval "
+        "(e.g. 30s, 5m, 1h). Requires -p.",
+    )
+    parser.add_argument(
         "--agent",
         metavar="NAME",
         default=BuiltinAgentName.DEFAULT,

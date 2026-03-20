@@ -215,3 +215,10 @@ class ChatInputContainer(Vertical):
             input_box.border_title = name
         except Exception:
             pass
+
+    def set_status_info(self, text: str) -> None:
+        try:
+            input_box = self.get_widget_by_id(self.ID_INPUT_BOX)
+            input_box.border_subtitle = text
+        except Exception:
+            pass

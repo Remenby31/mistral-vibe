@@ -4,7 +4,9 @@ import argparse
 from dataclasses import dataclass
 import os
 from pathlib import Path
+import re
 import sys
+import time
 import uuid
 
 from rich import print as rprint
@@ -169,6 +171,16 @@ def _setup_ipc_mode(args: argparse.Namespace) -> IPCBootConfig:
     )
 
 
+def _parse_loop_interval(token: str) -> float | None:
+    token = token.lower().strip()
+    multipliers = {"s": 1, "m": 60, "h": 3600}
+    if token[-1] in multipliers and token[:-1].replace(".", "", 1).isdigit():
+        return float(token[:-1]) * multipliers[token[-1]]
+    if token.replace(".", "", 1).isdigit():
+        return float(token) * 60
+    return None
+
+
 def run_cli(args: argparse.Namespace) -> None:
     load_dotenv_values()
     bootstrap_config_files()
@@ -199,19 +211,50 @@ def run_cli(args: argparse.Namespace) -> None:
                 args.output if hasattr(args, "output") else "text"
             )
 
+            loop_interval = None
+            if args.loop:
+                loop_interval = _parse_loop_interval(args.loop)
+                if loop_interval is None:
+                    print(
+                        f"Error: Invalid loop interval '{args.loop}'. "
+                        "Use e.g. 30s, 5m, 1h.",
+                        file=sys.stderr,
+                    )
+                    sys.exit(1)
+
             try:
-                final_response = run_programmatic(
-                    config=config,
-                    prompt=programmatic_prompt,
-                    max_turns=args.max_turns,
-                    max_price=args.max_price,
-                    output_format=output_format,
-                    previous_messages=loaded_session[0] if loaded_session else None,
-                    agent_name=initial_agent_name,
-                )
-                if final_response:
-                    print(final_response)
-                sys.exit(0)
+                iteration = 0
+                while True:
+                    iteration += 1
+                    if loop_interval:
+                        rprint(
+                            f"[dim]--- loop iteration {iteration} ---[/]"
+                        )
+
+                    final_response = run_programmatic(
+                        config=config,
+                        prompt=programmatic_prompt,
+                        max_turns=args.max_turns,
+                        max_price=args.max_price,
+                        output_format=output_format,
+                        previous_messages=loaded_session[0]
+                        if loaded_session
+                        else None,
+                        agent_name=initial_agent_name,
+                    )
+                    if final_response:
+                        print(final_response)
+
+                    if not loop_interval:
+                        sys.exit(0)
+
+                    rprint(
+                        f"[dim]--- sleeping {args.loop} "
+                        f"(next at {time.strftime('%H:%M:%S', time.localtime(time.time() + loop_interval))}) "
+                        f"---[/]"
+                    )
+                    time.sleep(loop_interval)
+
             except ConversationLimitException as e:
                 print(e, file=sys.stderr)
                 sys.exit(1)

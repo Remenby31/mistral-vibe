@@ -287,6 +287,12 @@ class VibeApp(App):  # noqa: PLR0904
         self._cached_loading_area: Widget | None = None
         self._switch_agent_generation = 0
         self._plan_info: PlanInfo | None = None
+        self._loop_task: asyncio.Task | None = None
+        self._loop_prompt: str | None = None
+        self._loop_interval: float = 600.0
+        self._loop_indicator_text: str = ""
+        self._loop_next_run: float = 0.0
+        self._loop_countdown_task: asyncio.Task | None = None
 
     @property
     def config(self) -> VibeConfig:
@@ -413,6 +419,15 @@ class VibeApp(App):  # noqa: PLR0904
                 await self._handle_teleport_command(value[1:])
                 return
 
+        lower_value = value.lower().strip()
+        if lower_value == "/loop-stop" or lower_value == "/loop stop":
+            await self._stop_loop()
+            return
+
+        if lower_value == "/loop" or lower_value.startswith("/loop "):
+            await self._handle_loop_command(value)
+            return
+
         if await self._handle_command(value):
             return
 
@@ -536,13 +551,18 @@ class VibeApp(App):  # noqa: PLR0904
         return False
 
     def _get_skill_entries(self) -> list[tuple[str, str]]:
+        entries: list[tuple[str, str]] = [
+            ("/loop", "Run a prompt on a recurring interval (e.g. /loop 5m <prompt>)"),
+            ("/loop-stop", "Stop the active loop"),
+        ]
         if not self.agent_loop:
-            return []
-        return [
+            return entries
+        entries.extend(
             (f"/{name}", info.description)
             for name, info in self.agent_loop.skill_manager.available_skills.items()
             if info.user_invocable
-        ]
+        )
+        return entries
 
     async def _handle_skill(self, user_input: str) -> bool:
         if not user_input.startswith("/"):
@@ -933,6 +953,107 @@ class VibeApp(App):  # noqa: PLR0904
 """
         await self._mount_and_scroll(UserCommandMessage(status_text))
 
+    @staticmethod
+    def _parse_loop_interval(token: str) -> float | None:
+        token = token.lower().strip()
+        multipliers = {"s": 1, "m": 60, "h": 3600}
+        if token[-1] in multipliers and token[:-1].replace(".", "", 1).isdigit():
+            return float(token[:-1]) * multipliers[token[-1]]
+        if token.replace(".", "", 1).isdigit():
+            return float(token) * 60  # default to minutes
+        return None
+
+    async def _handle_loop_command(self, user_input: str) -> None:
+        await self._mount_and_scroll(UserMessage(user_input))
+
+        parts = user_input.split(None, 2)  # ["/loop", interval_or_prompt, rest...]
+        if len(parts) < 2:
+            await self._mount_and_scroll(
+                UserCommandMessage(
+                    "Usage: `/loop [interval] <prompt or /command>`\n\n"
+                    "Examples:\n"
+                    "- `/loop 5m check deployment status`\n"
+                    "- `/loop 30s /my-skill`\n"
+                    "- `/loop check deployment status` (defaults to 10m)\n\n"
+                    "Stop with `/loop stop` or `/loop-stop`."
+                )
+            )
+            return
+
+        interval = self._parse_loop_interval(parts[1])
+        if interval is not None:
+            prompt = parts[2] if len(parts) > 2 else ""
+        else:
+            interval = 600.0  # default 10 minutes
+            prompt = user_input.split(None, 1)[1]  # everything after "/loop"
+
+        if not prompt.strip():
+            await self._mount_and_scroll(
+                ErrorMessage("No prompt provided for /loop.", collapsed=self._tools_collapsed)
+            )
+            return
+
+        if self._loop_task and not self._loop_task.done():
+            self._loop_task.cancel()
+            await self._mount_and_scroll(
+                UserCommandMessage("Previous loop stopped. Starting new loop.")
+            )
+
+        self._loop_prompt = prompt.strip()
+        self._loop_interval = interval
+
+        interval_display = (
+            f"{interval:.0f}s" if interval < 60
+            else f"{interval / 60:.0f}m" if interval < 3600
+            else f"{interval / 3600:.1f}h"
+        )
+        await self._mount_and_scroll(
+            UserCommandMessage(
+                f"Loop started: will run every **{interval_display}**.\n\n"
+                f"Prompt: `{self._loop_prompt}`\n\n"
+                f"Stop with `/loop stop`."
+            )
+        )
+
+        self._update_loop_indicator(interval_display)
+        self._loop_task = asyncio.create_task(self._run_loop())
+
+    async def _run_loop(self) -> None:
+        try:
+            while True:
+                prompt = self._loop_prompt
+                if not prompt:
+                    break
+
+                if await self._handle_skill(prompt):
+                    pass
+                else:
+                    await self._handle_user_message(prompt)
+
+                while self._agent_running:
+                    await asyncio.sleep(0.5)
+
+                self._loop_next_run = asyncio.get_event_loop().time() + self._loop_interval
+                await asyncio.sleep(self._loop_interval)
+        except asyncio.CancelledError:
+            pass
+        finally:
+            self._update_loop_indicator(None)
+
+    async def _stop_loop(self) -> None:
+        await self._mount_and_scroll(UserMessage("/loop stop"))
+        if self._loop_task and not self._loop_task.done():
+            self._loop_task.cancel()
+            self._loop_prompt = None
+            self._update_loop_indicator(None)
+            await self._mount_and_scroll(
+                UserCommandMessage("Loop stopped.")
+            )
+        else:
+            await self._mount_and_scroll(
+                UserCommandMessage("No active loop to stop.")
+            )
+
     async def _show_config(self) -> None:
         """Switch to the configuration app in the bottom panel."""
         if self._current_bottom_app == BottomApp.Config:
@@ -1292,11 +1413,50 @@ class VibeApp(App):  # noqa: PLR0904
 
     def _update_agentree_indicator(self, enabled: bool) -> None:
         """Update the statusline indicator."""
+        self._agentree_enabled = enabled
+        self._refresh_status_subtitle()
+
+    def _update_loop_indicator(self, interval_display: str | None = None) -> None:
+        if interval_display:
+            self._loop_indicator_text = f"loop({interval_display})"
+            self._loop_next_run = asyncio.get_event_loop().time() + self._loop_interval
+            if self._loop_countdown_task is None or self._loop_countdown_task.done():
+                self._loop_countdown_task = asyncio.create_task(self._run_loop_countdown())
+        else:
+            self._loop_indicator_text = ""
+            self._loop_next_run = 0.0
+            if self._loop_countdown_task and not self._loop_countdown_task.done():
+                self._loop_countdown_task.cancel()
+                self._loop_countdown_task = None
+        self._refresh_status_subtitle()
+
+    async def _run_loop_countdown(self) -> None:
         try:
-            indicator = self.query_one("#agentree-indicator", NoMarkupStatic)
-            indicator.update(" agentree" if enabled else "")
-        except Exception:
+            while self._loop_next_run > 0:
+                remaining = max(0, self._loop_next_run - asyncio.get_event_loop().time())
+                if remaining <= 0:
+                    self._refresh_status_subtitle()
+                    await asyncio.sleep(1)
+                    continue
+                mins, secs = divmod(int(remaining), 60)
+                if mins > 0:
+                    self._loop_indicator_text = f"loop({mins}m{secs:02d}s)"
+                else:
+                    self._loop_indicator_text = f"loop({secs}s)"
+                self._refresh_status_subtitle()
+                await asyncio.sleep(1)
+        except asyncio.CancelledError:
             pass
+
+    def _refresh_status_subtitle(self) -> None:
+        parts = []
+        if getattr(self, "_agentree_enabled", False):
+            parts.append("agentree")
+        if getattr(self, "_loop_indicator_text", ""):
+            parts.append(self._loop_indicator_text)
+        text = " | ".join(parts)
+        if self._chat_input_container:
+            self._chat_input_container.set_status_info(text)
 
     def _refresh_agentree_system_prompt(self) -> None:
         """Rebuild system prompt to include/exclude agentree section."""
