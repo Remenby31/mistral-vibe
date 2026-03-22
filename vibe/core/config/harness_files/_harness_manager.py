@@ -1,16 +1,24 @@
 from __future__ import annotations
 
+import datetime
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
 from vibe.core.config.harness_files._paths import (
     GLOBAL_AGENTS_DIR,
+    GLOBAL_MEMORY_DIR,
     GLOBAL_PROMPTS_DIR,
     GLOBAL_SKILLS_DIR,
     GLOBAL_TOOLS_DIR,
 )
-from vibe.core.paths import AGENTS_MD_FILENAME, VIBE_HOME, walk_local_config_dirs_all
+from vibe.core.paths import (
+    AGENTS_MD_FILENAME,
+    MEMORY_DIR_NAME,
+    MEMORY_MD_FILENAME,
+    VIBE_HOME,
+    walk_local_config_dirs_all,
+)
 from vibe.core.trusted_folders import trusted_folders_manager
 
 FileSource = Literal["user", "project"]
@@ -102,6 +110,69 @@ class HarnessFilesManager:
             return []
         candidate = workdir / ".vibe" / "prompts"
         return [candidate] if candidate.is_dir() else []
+
+    @property
+    def user_memory_dir(self) -> Path | None:
+        if "user" not in self.sources:
+            return None
+        d = GLOBAL_MEMORY_DIR.path
+        return d if d.is_dir() else None
+
+    @property
+    def project_memory_dir(self) -> Path | None:
+        workdir = self.trusted_workdir
+        if workdir is None:
+            return None
+        candidate = workdir / ".vibe" / MEMORY_DIR_NAME
+        return candidate if candidate.is_dir() else None
+
+    def _load_memory_md(self, directory: Path) -> str:
+        path = directory / MEMORY_MD_FILENAME
+        try:
+            content = path.read_text("utf-8", errors="ignore").strip()
+            return content if content else ""
+        except (FileNotFoundError, OSError):
+            return ""
+
+    def load_user_memory(self) -> str:
+        if "user" not in self.sources:
+            return ""
+        return self._load_memory_md(GLOBAL_MEMORY_DIR.path)
+
+    def load_project_memory(self) -> str:
+        workdir = self.trusted_workdir
+        if workdir is None:
+            return ""
+        return self._load_memory_md(workdir / ".vibe" / MEMORY_DIR_NAME)
+
+    def load_daily_logs(self, n_days: int = 2) -> list[tuple[str, str, str]]:
+        """Load recent daily logs from both user and project memory.
+
+        Returns (source, date_str, content) tuples, most recent first.
+        source is 'user' or 'project'.
+        """
+        today = datetime.date.today()
+        dates = [(today - datetime.timedelta(days=i)).isoformat() for i in range(n_days)]
+        results: list[tuple[str, str, str]] = []
+        dirs: list[tuple[str, Path | None]] = [
+            ("user", self.user_memory_dir),
+            ("project", self.project_memory_dir),
+        ]
+        for source, mem_dir in dirs:
+            if mem_dir is None:
+                continue
+            daily_dir = mem_dir / "daily"
+            if not daily_dir.is_dir():
+                continue
+            for date_str in dates:
+                path = daily_dir / f"{date_str}.md"
+                try:
+                    content = path.read_text("utf-8", errors="ignore").strip()
+                    if content:
+                        results.append((source, date_str, content))
+                except (FileNotFoundError, OSError):
+                    pass
+        return results
 
     @property
     def user_prompts_dirs(self) -> list[Path]:

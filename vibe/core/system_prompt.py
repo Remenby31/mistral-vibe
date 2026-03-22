@@ -9,7 +9,7 @@ import sys
 from typing import TYPE_CHECKING
 
 from vibe.core.config.harness_files import get_harness_files_manager
-from vibe.core.paths import VIBE_HOME
+from vibe.core.paths import MEMORY_DIR_NAME, VIBE_HOME
 from vibe.core.prompts import UtilityPrompt
 from vibe.core.utils import is_dangerous_directory, is_windows
 
@@ -274,6 +274,49 @@ def _get_agentree_section() -> str:
     return "\n".join(lines)
 
 
+def _get_memory_section() -> str:
+    """Build the persistent memory section for the system prompt."""
+    mgr = get_harness_files_manager()
+
+    user_memory = mgr.load_user_memory()
+    project_memory = mgr.load_project_memory()
+    daily_logs = mgr.load_daily_logs(n_days=2)
+
+    # Build the content that gets substituted into the template
+    parts: list[str] = []
+
+    if user_memory:
+        user_dir = mgr.user_memory_dir or (VIBE_HOME.path / MEMORY_DIR_NAME)
+        parts.append(f"## User Memory\n\nContents of {user_dir}/MEMORY.md:\n\n{user_memory}")
+
+    if project_memory:
+        project_dir = mgr.project_memory_dir
+        if project_dir:
+            parts.append(f"## Project Memory\n\nContents of {project_dir}/MEMORY.md:\n\n{project_memory}")
+
+    if daily_logs:
+        parts.append("## Recent Daily Logs")
+        for source, date_str, content in daily_logs:
+            source_dir = mgr.user_memory_dir if source == "user" else mgr.project_memory_dir
+            parts.append(f"### {date_str} ({source})\n\nPath: {source_dir}/daily/{date_str}.md\n\n{content}")
+
+    if not parts:
+        parts.append("No memory files found yet. Create `MEMORY.md` in the memory directory to start building persistent memory.")
+
+    memory_content = "\n\n".join(parts)
+
+    user_dir = mgr.user_memory_dir or (VIBE_HOME.path / MEMORY_DIR_NAME)
+    workdir = mgr.trusted_workdir
+    project_dir_str = str(workdir / ".vibe" / MEMORY_DIR_NAME) if workdir else "(no trusted project)"
+
+    template = UtilityPrompt.MEMORY.read()
+    return Template(template).safe_substitute(
+        user_memory_dir=str(user_dir),
+        project_memory_dir=project_dir_str,
+        memory_content=memory_content,
+    )
+
+
 def get_universal_system_prompt(
     tool_manager: ToolManager,
     config: VibeConfig,
@@ -343,5 +386,9 @@ def get_universal_system_prompt(
             sections.append(
                 Template(template).safe_substitute(sections="\n\n".join(doc_sections))
             )
+
+    memory_section = _get_memory_section()
+    if memory_section:
+        sections.append(memory_section)
 
     return "\n\n".join(sections)
